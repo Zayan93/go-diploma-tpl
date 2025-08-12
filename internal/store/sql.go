@@ -11,6 +11,7 @@ import (
 )
 
 // SQLStorage реализует интерфейс для работы с SQL-базой
+// и реализует как UserStorage, так и OrderStorage
 
 type SQLPinger interface {
 	Ping() error
@@ -30,6 +31,17 @@ type User struct {
 	ID       int    `json:"id"`
 	Login    string `json:"login"`
 	Password string `json:"password"`
+}
+
+// Order представляет заказ в системе
+type Order struct {
+	ID        int      `json:"id"`
+	UserID    int      `json:"user_id"`
+	OrderNum  string   `json:"order_num"`
+	Status    string   `json:"status"`
+	Accrual   *float64 `json:"accrual,omitempty"`
+	CreatedAt string   `json:"created_at"`
+	UpdatedAt string   `json:"updated_at"`
 }
 
 // NewSQLStorage создаёт SQLStorage и инициализирует таблицу
@@ -56,6 +68,25 @@ func (s *SQLStorage) initTable() error {
 		return err
 	} else {
 		logger.Log.Info("Table users created or already exists")
+	}
+
+	// Создаем таблицу заказов
+	_, err = s.DB.Exec(`
+		CREATE TABLE IF NOT EXISTS orders (
+			id SERIAL PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			order_num VARCHAR(255) UNIQUE NOT NULL,
+			status VARCHAR(50) NOT NULL DEFAULT 'NEW',
+			accrual DECIMAL(10,2) DEFAULT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	if err != nil {
+		logger.Log.Error("Failed to create orders table", zap.Error(err))
+		return err
+	} else {
+		logger.Log.Info("Table orders created or already exists")
 	}
 
 	return nil
@@ -244,4 +275,77 @@ func (s *SQLStorage) UserExists(login string) (bool, error) {
 		return false, err
 	}
 	return exists, nil
+}
+
+// CreateOrder создает новый заказ
+func (s *SQLStorage) CreateOrder(userID int, orderNum string) error {
+	_, err := s.DB.Exec(`INSERT INTO orders (user_id, order_num) VALUES ($1, $2)`, userID, orderNum)
+	if err != nil {
+		logger.Log.Error("Failed to create order", zap.Error(err))
+	}
+	return err
+}
+
+// GetOrderByNumber возвращает заказ по номеру
+func (s *SQLStorage) GetOrderByNumber(orderNum string) (*Order, error) {
+	order := &Order{}
+	err := s.DB.QueryRow(`
+		SELECT id, user_id, order_num, status, accrual, created_at, updated_at 
+		FROM orders 
+		WHERE order_num = $1
+	`, orderNum).Scan(&order.ID, &order.UserID, &order.OrderNum, &order.Status, &order.Accrual, &order.CreatedAt, &order.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		logger.Log.Error("Failed to get order by number", zap.Error(err))
+		return nil, err
+	}
+	return order, nil
+}
+
+// GetOrdersByUser возвращает все заказы пользователя
+func (s *SQLStorage) GetOrdersByUser(userID int) ([]*Order, error) {
+	rows, err := s.DB.Query(`
+		SELECT id, user_id, order_num, status, accrual, created_at, updated_at 
+		FROM orders 
+		WHERE user_id = $1 
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		logger.Log.Error("Failed to query user orders", zap.Error(err))
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []*Order
+	for rows.Next() {
+		order := &Order{}
+		if err := rows.Scan(&order.ID, &order.UserID, &order.OrderNum, &order.Status, &order.Accrual, &order.CreatedAt, &order.UpdatedAt); err != nil {
+			logger.Log.Error("Failed to scan order row", zap.Error(err))
+			return nil, err
+		}
+		orders = append(orders, order)
+	}
+
+	if err = rows.Err(); err != nil {
+		logger.Log.Error("Error iterating order rows", zap.Error(err))
+		return nil, err
+	}
+
+	return orders, nil
+}
+
+// UpdateOrderStatus обновляет статус заказа
+func (s *SQLStorage) UpdateOrderStatus(orderID int, status string) error {
+	_, err := s.DB.Exec(`
+		UPDATE orders 
+		SET status = $1, updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $2
+	`, status, orderID)
+	if err != nil {
+		logger.Log.Error("Failed to update order status", zap.Error(err))
+	}
+	return err
 }

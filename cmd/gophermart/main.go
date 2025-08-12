@@ -65,6 +65,10 @@ func main() {
 	r.Post("/api/user/register", handler.PostRegister)
 	r.Post("/api/user/login", handler.PostLogin)
 
+	// Маршруты для заказов
+	r.Post("/api/user/orders", handler.PostOrders)
+	r.Get("/api/user/orders", handler.GetOrders)
+
 	// Существующий маршрут (временно отключен)
 	// r.Post("/api/user/register", handler.PostShorten)
 

@@ -13,6 +13,14 @@ type UserStorage interface {
 	UserExists(login string) (bool, error)
 }
 
+// OrderStorage интерфейс для работы с заказами
+type OrderStorage interface {
+	CreateOrder(userID int, orderNum string) error
+	GetOrderByNumber(orderNum string) (*Order, error)
+	GetOrdersByUser(userID int) ([]*Order, error)
+	UpdateOrderStatus(orderID int, status string) error
+}
+
 type Event struct {
 	UUID        uint   `json:"uuid"`
 	ShortURL    string `json:"short_url"`

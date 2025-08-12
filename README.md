@@ -23,3 +23,34 @@ git fetch template && git checkout template/master .github
 ```
 
 Затем добавьте полученные изменения в свой репозиторий.
+
+
+# Пример ручного запрос на Windows
+
+1. Регистрация пользователя
+
+curl.exe -v -H "Content-Type: application/json" \
+  -X POST http://localhost:8080/api/user/register \
+  -d "{\"login\": \"testuser@example.com\", \"password\": \"password123\"}" \
+  -c cookies.txt
+
+2. Логин пользователя
+
+curl.exe -v -H "Content-Type: application/json" \
+  -X POST http://localhost:8080/api/user/login \
+  -d "{\"login\": \"testuser@example.com\", \"password\": \"password123\"}" \
+  -c cookies.txt
+
+
+3. Загрузка первого заказа
+
+curl.exe -v -H "Content-Type: text/plain" \
+  -X POST http://localhost:8080/api/user/orders \
+  -b cookies.txt \
+  -d "12345678903"
+
+4. Получение списка заказов
+
+curl.exe -v -H "Content-Type: application/json" \
+  -X GET http://localhost:8080/api/user/orders \
+  -b cookies.txt

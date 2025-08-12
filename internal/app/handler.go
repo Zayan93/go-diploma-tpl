@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Zayan93/go-diploma-tpl/internal/logger"
@@ -24,14 +26,24 @@ type AUTHResponseBody struct {
 	Password string `json:"password"`
 }
 
+// OrderResponse представляет заказ в ответе API
+type OrderResponse struct {
+	Number     string   `json:"number"`
+	Status     string   `json:"status"`
+	Accrual    *float64 `json:"accrual,omitempty"`
+	UploadedAt string   `json:"uploaded_at"`
+}
+
 func NewHandler(userStorage store.UserStorage) *Handler {
 	return &Handler{
-		UserStorage: userStorage,
+		UserStorage:  userStorage,
+		OrderStorage: userStorage.(store.OrderStorage), // Приводим к OrderStorage
 	}
 }
 
 type Handler struct {
-	UserStorage store.UserStorage
+	UserStorage  store.UserStorage
+	OrderStorage store.OrderStorage
 }
 
 // hashPassword хеширует пароль с использованием SHA-256
@@ -179,4 +191,148 @@ func (h *Handler) PostShorten(res http.ResponseWriter, req *http.Request) {
 	// для работы с URL сокращением
 	res.WriteHeader(http.StatusNotImplemented)
 	res.Write([]byte("URL shortening functionality not implemented yet"))
+}
+
+// PostOrders обрабатывает загрузку номера заказа пользователем
+func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(res, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Проверяем аутентификацию пользователя
+	userID, err := h.getUserIDFromCookie(req)
+	if err != nil {
+		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+		http.Error(res, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Читаем номер заказа из тела запроса
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		logger.Log.Error("Failed to read request body", zap.Error(err))
+		http.Error(res, "Invalid request format", http.StatusBadRequest)
+		return
+	}
+	defer req.Body.Close()
+
+	orderNum := strings.TrimSpace(string(body))
+	if orderNum == "" {
+		http.Error(res, "Order number is required", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем формат номера заказа (должен быть числом)
+	if !h.isValidOrderNumber(orderNum) {
+		http.Error(res, "Invalid order number format", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// Проверяем, существует ли уже заказ с таким номером
+	existingOrder, err := h.OrderStorage.GetOrderByNumber(orderNum)
+	if err != nil {
+		logger.Log.Error("Failed to check if order exists", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if existingOrder != nil {
+		// Заказ уже существует
+		if existingOrder.UserID == userID {
+			// Заказ уже был загружен этим пользователем
+			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
+			res.WriteHeader(http.StatusOK)
+			return
+		} else {
+			// Заказ уже был загружен другим пользователем
+			logger.Log.Info("Order already uploaded by another user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
+			http.Error(res, "Order already uploaded by another user", http.StatusConflict)
+			return
+		}
+	}
+
+	// Создаем новый заказ
+	err = h.OrderStorage.CreateOrder(userID, orderNum)
+	if err != nil {
+		logger.Log.Error("Failed to create order", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.Int("userID", userID))
+	res.WriteHeader(http.StatusAccepted)
+}
+
+// GetOrders возвращает список заказов пользователя
+func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(res, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Проверяем аутентификацию пользователя
+	userID, err := h.getUserIDFromCookie(req)
+	if err != nil {
+		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+		http.Error(res, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Получаем заказы пользователя
+	orders, err := h.OrderStorage.GetOrdersByUser(userID)
+	if err != nil {
+		logger.Log.Error("Failed to get user orders", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Преобразуем заказы в формат ответа API
+	var orderResponses []OrderResponse
+	for _, order := range orders {
+		orderResponse := OrderResponse{
+			Number:     order.OrderNum,
+			Status:     order.Status,
+			Accrual:    order.Accrual,
+			UploadedAt: order.CreatedAt,
+		}
+		orderResponses = append(orderResponses, orderResponse)
+	}
+
+	// Устанавливаем заголовок Content-Type
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+
+	// Кодируем ответ в JSON
+	if err := json.NewEncoder(res).Encode(orderResponses); err != nil {
+		logger.Log.Error("Failed to encode orders response", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Log.Info("Orders retrieved successfully", zap.Int("userID", userID), zap.Int("count", len(orderResponses)))
+}
+
+// getUserIDFromCookie извлекает ID пользователя из куки
+func (h *Handler) getUserIDFromCookie(req *http.Request) (int, error) {
+	_, err := req.Cookie("session_id")
+	if err != nil {
+		return 0, err
+	}
+
+	// TODO: Реализовать проверку сессии и получение userID
+	// Пока что возвращаем заглушку
+	// В реальной реализации здесь должна быть проверка сессии
+	return 1, nil
+}
+
+// isValidOrderNumber проверяет, является ли номер заказа валидным
+func (h *Handler) isValidOrderNumber(orderNum string) bool {
+	// Проверяем, что строка состоит только из цифр
+	for _, char := range orderNum {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return len(orderNum) > 0
 }
