@@ -276,7 +276,7 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 	}()
 
 	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.Int("userID", userID))
-	res.WriteHeader(http.StatusOK)
+	res.WriteHeader(http.StatusAccepted)
 }
 
 // GetOrders возвращает список заказов пользователя
