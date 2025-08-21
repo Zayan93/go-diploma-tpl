@@ -238,12 +238,10 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 			// Заказ уже был загружен этим пользователем
 			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 			res.WriteHeader(http.StatusOK)
-			return
 		} else {
 			// Заказ уже был загружен другим пользователем
 			logger.Log.Info("Order already uploaded by another user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 			http.Error(res, "Order already uploaded by another user", http.StatusConflict)
-			return
 		}
 	}
 
@@ -254,13 +252,6 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
-	// Запускаем асинхронную обработку начисления баллов
-	go func() {
-		if err := h.ProcessOrderAccrual(req, orderNum); err != nil {
-			logger.Log.Error("Failed to process order accrual", zap.Error(err))
-		}
-	}()
 
 	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 	res.WriteHeader(http.StatusAccepted)
