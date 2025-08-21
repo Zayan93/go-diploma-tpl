@@ -87,7 +87,7 @@ func (h *Handler) PostRegister(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// Проверяем, существует ли уже пользователь с таким логином
-	exists, err := h.UserStorage.UserExists(req.Context(), requestBody.Login)
+	exists, err := h.UserStorage.UserExists(requestBody.Login)
 	if err != nil {
 		logger.Log.Error("Failed to check if user exists", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -103,14 +103,14 @@ func (h *Handler) PostRegister(res http.ResponseWriter, req *http.Request) {
 	hashedPassword := hashPassword(requestBody.Password)
 
 	// Создаем пользователя
-	if err := h.UserStorage.CreateUser(req.Context(), requestBody.Login, hashedPassword); err != nil {
+	if err := h.UserStorage.CreateUser(requestBody.Login, hashedPassword); err != nil {
 		logger.Log.Error("Failed to create user", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	// Получаем созданного пользователя для установки куки
-	user, err := h.UserStorage.GetUserByLogin(req.Context(), requestBody.Login)
+	user, err := h.UserStorage.GetUserByLogin(requestBody.Login)
 	if err != nil {
 		logger.Log.Error("Failed to get created user", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -153,7 +153,7 @@ func (h *Handler) PostLogin(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// Получаем пользователя по логину
-	user, err := h.UserStorage.GetUserByLogin(req.Context(), requestBody.Login)
+	user, err := h.UserStorage.GetUserByLogin(requestBody.Login)
 	if err != nil {
 		logger.Log.Error("Failed to get user by login", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -219,7 +219,7 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// Проверяем, существует ли уже заказ с таким номером
-	existingOrder, err := h.OrderStorage.GetOrderByNumber(req.Context(), orderNum)
+	existingOrder, err := h.OrderStorage.GetOrderByNumber(orderNum)
 	if err != nil {
 		logger.Log.Error("Failed to check if order exists", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -242,7 +242,7 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// Создаем новый заказ
-	err = h.OrderStorage.CreateOrder(req.Context(), userID, orderNum)
+	err = h.OrderStorage.CreateOrder(userID, orderNum)
 	if err != nil {
 		logger.Log.Error("Failed to create order", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -271,7 +271,7 @@ func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// Получаем заказы пользователя
-	orders, err := h.OrderStorage.GetOrdersByUser(req.Context(), userID)
+	orders, err := h.OrderStorage.GetOrdersByUser(userID)
 	if err != nil {
 		logger.Log.Error("Failed to get user orders", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -320,7 +320,7 @@ func (h *Handler) GetUserBalance(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// Получаем баланс пользователя
-	current, withdrawn, err := h.OrderStorage.GetUserBalance(req.Context(), userID)
+	current, withdrawn, err := h.OrderStorage.GetUserBalance(userID)
 	if err != nil {
 		logger.Log.Error("Failed to get user balance", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -387,7 +387,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Проверяем, существует ли уже заказ с таким номером
-	existingOrder, err := h.OrderStorage.GetOrderByNumber(req.Context(), requestBody.Order)
+	existingOrder, err := h.OrderStorage.GetOrderByNumber(requestBody.Order)
 	if err != nil {
 		logger.Log.Error("Failed to check if order exists", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -408,7 +408,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Получаем текущий баланс пользователя
-	current, _, err := h.OrderStorage.GetUserBalance(req.Context(), userID)
+	current, _, err := h.OrderStorage.GetUserBalance(userID)
 	if err != nil {
 		logger.Log.Error("Failed to get user balance", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -422,7 +422,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Создаем вывод средств
-	err = h.OrderStorage.CreateWithdrawal(req.Context(), userID, requestBody.Order, requestBody.Sum)
+	err = h.OrderStorage.CreateWithdrawal(userID, requestBody.Order, requestBody.Sum)
 	if err != nil {
 		logger.Log.Error("Failed to create withdrawal", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -430,7 +430,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Создаем заказ с отрицательным начислением (списание)
-	err = h.OrderStorage.CreateOrder(req.Context(), userID, requestBody.Order)
+	err = h.OrderStorage.CreateOrder(userID, requestBody.Order)
 	if err != nil {
 		logger.Log.Error("Failed to create order for withdrawal", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -438,7 +438,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Устанавливаем отрицательное начисление (списание)
-	err = h.OrderStorage.UpdateOrderAccrual(req.Context(), requestBody.Order, -requestBody.Sum)
+	err = h.OrderStorage.UpdateOrderAccrual(requestBody.Order, -requestBody.Sum)
 	if err != nil {
 		logger.Log.Error("Failed to update order accrual for withdrawal", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -446,7 +446,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Обновляем статус заказа
-	order, err := h.OrderStorage.GetOrderByNumber(req.Context(), requestBody.Order)
+	order, err := h.OrderStorage.GetOrderByNumber(requestBody.Order)
 	if err != nil {
 		logger.Log.Error("Failed to get order for status update", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -454,7 +454,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	if order != nil {
-		err = h.OrderStorage.UpdateOrderStatus(req.Context(), order.ID, "PROCESSED")
+		err = h.OrderStorage.UpdateOrderStatus(order.ID, "PROCESSED")
 		if err != nil {
 			logger.Log.Error("Failed to update order status", zap.Error(err))
 			http.Error(res, "Internal server error", http.StatusInternalServerError)
@@ -485,7 +485,7 @@ func (h *Handler) GetUserWithdrawals(res http.ResponseWriter, req *http.Request)
 	}
 
 	// Получаем выводы средств пользователя
-	withdrawals, err := h.OrderStorage.GetUserWithdrawals(req.Context(), userID)
+	withdrawals, err := h.OrderStorage.GetUserWithdrawals(userID)
 	if err != nil {
 		logger.Log.Error("Failed to get user withdrawals", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)

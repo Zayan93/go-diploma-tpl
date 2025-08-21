@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -271,8 +270,8 @@ func (s *SQLStorage) GetWithDeletedFlag(id string) (string, bool, bool) {
 }
 
 // CreateUser создает нового пользователя
-func (s *SQLStorage) CreateUser(ctx context.Context, login, password string) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO users (login, password) VALUES ($1, $2)`, login, password)
+func (s *SQLStorage) CreateUser(login, password string) error {
+	_, err := s.DB.Exec(`INSERT INTO users (login, password) VALUES ($1, $2)`, login, password)
 	if err != nil {
 		logger.Log.Error("Failed to create user", zap.Error(err))
 	}
@@ -280,9 +279,9 @@ func (s *SQLStorage) CreateUser(ctx context.Context, login, password string) err
 }
 
 // GetUserByLogin возвращает пользователя по логину
-func (s *SQLStorage) GetUserByLogin(ctx context.Context, login string) (*User, error) {
+func (s *SQLStorage) GetUserByLogin(login string) (*User, error) {
 	user := &User{}
-	err := s.DB.QueryRowContext(ctx, `SELECT id, login, password FROM users WHERE login = $1`, login).Scan(&user.ID, &user.Login, &user.Password)
+	err := s.DB.QueryRow(`SELECT id, login, password FROM users WHERE login = $1`, login).Scan(&user.ID, &user.Login, &user.Password)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -294,9 +293,9 @@ func (s *SQLStorage) GetUserByLogin(ctx context.Context, login string) (*User, e
 }
 
 // UserExists проверяет, существует ли пользователь с данным логином
-func (s *SQLStorage) UserExists(ctx context.Context, login string) (bool, error) {
+func (s *SQLStorage) UserExists(login string) (bool, error) {
 	var exists bool
-	err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE login = $1)`, login).Scan(&exists)
+	err := s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM users WHERE login = $1)`, login).Scan(&exists)
 	if err != nil {
 		logger.Log.Error("Failed to check if user exists", zap.Error(err))
 		return false, err
@@ -305,8 +304,8 @@ func (s *SQLStorage) UserExists(ctx context.Context, login string) (bool, error)
 }
 
 // CreateOrder создает новый заказ
-func (s *SQLStorage) CreateOrder(ctx context.Context, userID int, orderNum string) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO orders (user_id, order_num) VALUES ($1, $2)`, userID, orderNum)
+func (s *SQLStorage) CreateOrder(userID int, orderNum string) error {
+	_, err := s.DB.Exec(`INSERT INTO orders (user_id, order_num) VALUES ($1, $2)`, userID, orderNum)
 	if err != nil {
 		logger.Log.Error("Failed to create order", zap.Error(err))
 	}
@@ -314,9 +313,9 @@ func (s *SQLStorage) CreateOrder(ctx context.Context, userID int, orderNum strin
 }
 
 // GetOrderByNumber возвращает заказ по номеру
-func (s *SQLStorage) GetOrderByNumber(ctx context.Context, orderNum string) (*Order, error) {
-	order := &Order{}
-	err := s.DB.QueryRowContext(ctx, `
+func (s *SQLStorage) GetOrderByNumber(orderNum string) (*Order, error) {
+	var order Order
+	err := s.DB.QueryRow(`
 		SELECT id, user_id, order_num, status, accrual, created_at, updated_at 
 		FROM orders 
 		WHERE order_num = $1
@@ -325,16 +324,12 @@ func (s *SQLStorage) GetOrderByNumber(ctx context.Context, orderNum string) (*Or
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	if err != nil {
-		logger.Log.Error("Failed to get order by number", zap.Error(err))
-		return nil, err
-	}
-	return order, nil
+	return &order, nil
 }
 
 // GetOrdersByUser возвращает все заказы пользователя
-func (s *SQLStorage) GetOrdersByUser(ctx context.Context, userID int) ([]*Order, error) {
-	rows, err := s.DB.QueryContext(ctx, `
+func (s *SQLStorage) GetOrdersByUser(userID int) ([]*Order, error) {
+	rows, err := s.DB.Query(`
 		SELECT id, user_id, order_num, status, accrual, created_at, updated_at 
 		FROM orders 
 		WHERE user_id = $1 
@@ -365,8 +360,8 @@ func (s *SQLStorage) GetOrdersByUser(ctx context.Context, userID int) ([]*Order,
 }
 
 // UpdateOrderStatus обновляет статус заказа
-func (s *SQLStorage) UpdateOrderStatus(ctx context.Context, orderID int, status string) error {
-	_, err := s.DB.ExecContext(ctx, `
+func (s *SQLStorage) UpdateOrderStatus(orderID int, status string) error {
+	_, err := s.DB.Exec(`
 		UPDATE orders 
 		SET status = $1, updated_at = CURRENT_TIMESTAMP 
 		WHERE id = $2
@@ -378,11 +373,11 @@ func (s *SQLStorage) UpdateOrderStatus(ctx context.Context, orderID int, status 
 }
 
 // GetUserBalance возвращает текущий баланс и сумму использованных баллов пользователя
-func (s *SQLStorage) GetUserBalance(ctx context.Context, userID int) (float64, float64, error) {
+func (s *SQLStorage) GetUserBalance(userID int) (float64, float64, error) {
 	var current, withdrawn float64
 
 	// Получаем текущий баланс (сумма всех начислений)
-	err := s.DB.QueryRowContext(ctx, `
+	err := s.DB.QueryRow(`
 		SELECT COALESCE(SUM(accrual), 0) 
 		FROM orders 
 		WHERE user_id = $1 AND accrual IS NOT NULL AND accrual > 0
@@ -393,7 +388,7 @@ func (s *SQLStorage) GetUserBalance(ctx context.Context, userID int) (float64, f
 	}
 
 	// Получаем сумму использованных баллов (сумма всех списаний)
-	err = s.DB.QueryRowContext(ctx, `
+	err = s.DB.QueryRow(`
 		SELECT COALESCE(SUM(ABS(accrual)), 0) 
 		FROM orders 
 		WHERE user_id = $1 AND accrual IS NOT NULL AND accrual < 0
@@ -407,8 +402,8 @@ func (s *SQLStorage) GetUserBalance(ctx context.Context, userID int) (float64, f
 }
 
 // UpdateOrderAccrual обновляет начисление баллов для заказа
-func (s *SQLStorage) UpdateOrderAccrual(ctx context.Context, orderNum string, accrual float64) error {
-	_, err := s.DB.ExecContext(ctx, `
+func (s *SQLStorage) UpdateOrderAccrual(orderNum string, accrual float64) error {
+	_, err := s.DB.Exec(`
 		UPDATE orders 
 		SET accrual = $1, updated_at = CURRENT_TIMESTAMP 
 		WHERE order_num = $2
