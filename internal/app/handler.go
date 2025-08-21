@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/Zayan93/go-diploma-tpl/internal/config"
 	"github.com/Zayan93/go-diploma-tpl/internal/logger"
@@ -207,7 +206,7 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 	}
 	defer req.Body.Close()
 
-	orderNum := strings.TrimSpace(string(body))
+	orderNum := string(body)
 	if orderNum == "" {
 		http.Error(res, "Order number is required", http.StatusBadRequest)
 		return
@@ -232,7 +231,7 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		if existingOrder.UserID == userID {
 			// Заказ уже был загружен этим пользователем
 			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
-			res.WriteHeader(http.StatusOK)
+			http.Error(res, "Order already uploaded by this user", http.StatusOK)
 			return
 		} else {
 			// Заказ уже был загружен другим пользователем
