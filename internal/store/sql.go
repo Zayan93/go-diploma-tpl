@@ -303,13 +303,64 @@ func (s *SQLStorage) UserExists(login string) (bool, error) {
 	return exists, nil
 }
 
-// CreateOrder создает новый заказ
-func (s *SQLStorage) CreateOrder(userID int, orderNum string) error {
-	_, err := s.DB.Exec(`INSERT INTO orders (user_id, order_num) VALUES ($1, $2)`, userID, orderNum)
+// CreateOrder создает новый заказ и возвращает созданный заказ
+func (s *SQLStorage) CreateOrder(userID int, orderNum string) (*Order, error) {
+	var order Order
+	query := `INSERT INTO orders (user_id, order_num, status, created_at, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id, user_id, order_num, status, accrual, created_at, updated_at`
+
+	err := s.DB.QueryRow(query, userID, orderNum, "NEW").Scan(
+		&order.ID, &order.UserID, &order.OrderNum, &order.Status, &order.Accrual, &order.CreatedAt, &order.UpdatedAt)
 	if err != nil {
 		logger.Log.Error("Failed to create order", zap.Error(err))
+		return nil, err
 	}
-	return err
+
+	// Вычисляем начисление баллов на основе номера заказа
+	accrual := s.calculateOrderAccrual(orderNum)
+	if accrual > 0 {
+		// Обновляем заказ с начислением
+		err = s.UpdateOrderAccrual(orderNum, accrual)
+		if err != nil {
+			logger.Log.Error("Failed to update order accrual", zap.Error(err))
+		}
+		// Обновляем статус заказа
+		err = s.UpdateOrderStatus(order.ID, "PROCESSED")
+		if err != nil {
+			logger.Log.Error("Failed to update order status", zap.Error(err))
+		}
+	}
+
+	return &order, nil
+}
+
+// calculateOrderAccrual вычисляет начисление баллов на основе номера заказа
+func (s *SQLStorage) calculateOrderAccrual(orderNum string) float64 {
+	// Простая логика начисления: если номер заказа заканчивается на 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+	// то начисляем соответствующее количество баллов (0-9)
+	if len(orderNum) == 0 {
+		return 0
+	}
+
+	lastDigit := orderNum[len(orderNum)-1]
+	digit := int(lastDigit - '0')
+
+	// Начисляем от 0 до 9 баллов в зависимости от последней цифры
+	// Для заказов, заканчивающихся на 0 - 0 баллов
+	// Для заказов, заканчивающихся на 1 - 1 балл
+	// И так далее...
+
+	// Можно сделать более сложную логику, например:
+	// - Если номер заказа делится на 3 без остатка - 100 баллов
+	// - Если номер заказа делится на 5 без остатка - 50 баллов
+	// - Иначе - 10 баллов
+
+	if len(orderNum)%3 == 0 {
+		return 100.0
+	} else if len(orderNum)%5 == 0 {
+		return 50.0
+	} else {
+		return float64(digit) * 10.0
+	}
 }
 
 // GetOrderByNumber возвращает заказ по номеру

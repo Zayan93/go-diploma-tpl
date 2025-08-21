@@ -245,13 +245,15 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// Создаем новый заказ
-	err = h.OrderStorage.CreateOrder(userID, orderNum)
+	// Создаем новый заказ (начисление баллов происходит автоматически в CreateOrder)
+	order, err := h.OrderStorage.CreateOrder(userID, orderNum)
 	if err != nil {
 		logger.Log.Error("Failed to create order", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	logger.Log.Info("Order created with accrual", zap.String("orderNum", orderNum), zap.Int("userID", userID), zap.Any("accrual", order.Accrual))
 
 	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 	res.WriteHeader(http.StatusAccepted)
@@ -427,7 +429,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Создаем заказ с отрицательным начислением (списание)
-	err = h.OrderStorage.CreateOrder(userID, requestBody.Order)
+	_, err = h.OrderStorage.CreateOrder(userID, requestBody.Order)
 	if err != nil {
 		logger.Log.Error("Failed to create order for withdrawal", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)

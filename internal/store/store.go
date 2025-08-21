@@ -15,7 +15,7 @@ type UserStorage interface {
 
 // OrderStorage интерфейс для работы с заказами
 type OrderStorage interface {
-	CreateOrder(userID int, orderNum string) error
+	CreateOrder(userID int, orderNum string) (*Order, error)
 	GetOrderByNumber(orderNum string) (*Order, error)
 	GetOrdersByUser(userID int) ([]*Order, error)
 	UpdateOrderStatus(orderID int, status string) error
