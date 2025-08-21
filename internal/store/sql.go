@@ -44,6 +44,15 @@ type Order struct {
 	UpdatedAt string   `json:"updated_at"`
 }
 
+// Withdrawal представляет вывод средств пользователя
+type Withdrawal struct {
+	ID          int     `json:"id"`
+	UserID      int     `json:"user_id"`
+	OrderNum    string  `json:"order"`
+	Sum         float64 `json:"sum"`
+	ProcessedAt string  `json:"processed_at"`
+}
+
 // NewSQLStorage создаёт SQLStorage и инициализирует таблицу
 func NewSQLStorage(db *sql.DB) (*SQLStorage, error) {
 	storage := &SQLStorage{DB: db}
@@ -87,6 +96,23 @@ func (s *SQLStorage) initTable() error {
 		return err
 	} else {
 		logger.Log.Info("Table orders created or already exists")
+	}
+
+	// Создаем таблицу выводов средств
+	_, err = s.DB.Exec(`
+		CREATE TABLE IF NOT EXISTS withdrawals (
+			id SERIAL PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			order_num VARCHAR(255) UNIQUE NOT NULL,
+			sum DECIMAL(10,2) NOT NULL,
+			processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	if err != nil {
+		logger.Log.Error("Failed to create withdrawals table", zap.Error(err))
+		return err
+	} else {
+		logger.Log.Info("Table withdrawals created or already exists")
 	}
 
 	return nil
@@ -348,4 +374,90 @@ func (s *SQLStorage) UpdateOrderStatus(orderID int, status string) error {
 		logger.Log.Error("Failed to update order status", zap.Error(err))
 	}
 	return err
+}
+
+// GetUserBalance возвращает текущий баланс и сумму использованных баллов пользователя
+func (s *SQLStorage) GetUserBalance(userID int) (float64, float64, error) {
+	var current, withdrawn float64
+
+	// Получаем текущий баланс (сумма всех начислений)
+	err := s.DB.QueryRow(`
+		SELECT COALESCE(SUM(accrual), 0) 
+		FROM orders 
+		WHERE user_id = $1 AND accrual IS NOT NULL AND accrual > 0
+	`, userID).Scan(&current)
+	if err != nil {
+		logger.Log.Error("Failed to get current balance", zap.Error(err))
+		return 0, 0, err
+	}
+
+	// Получаем сумму использованных баллов (сумма всех списаний)
+	err = s.DB.QueryRow(`
+		SELECT COALESCE(SUM(ABS(accrual)), 0) 
+		FROM orders 
+		WHERE user_id = $1 AND accrual IS NOT NULL AND accrual < 0
+	`, userID).Scan(&withdrawn)
+	if err != nil {
+		logger.Log.Error("Failed to get withdrawn balance", zap.Error(err))
+		return 0, 0, err
+	}
+
+	return current, withdrawn, nil
+}
+
+// UpdateOrderAccrual обновляет начисление баллов для заказа
+func (s *SQLStorage) UpdateOrderAccrual(orderNum string, accrual float64) error {
+	_, err := s.DB.Exec(`
+		UPDATE orders 
+		SET accrual = $1, updated_at = CURRENT_TIMESTAMP 
+		WHERE order_num = $2
+	`, accrual, orderNum)
+	if err != nil {
+		logger.Log.Error("Failed to update order accrual", zap.Error(err))
+	}
+	return err
+}
+
+// CreateWithdrawal создает новый вывод средств
+func (s *SQLStorage) CreateWithdrawal(userID int, orderNum string, sum float64) error {
+	_, err := s.DB.Exec(`
+		INSERT INTO withdrawals (user_id, order_num, sum) 
+		VALUES ($1, $2, $3)
+	`, userID, orderNum, sum)
+	if err != nil {
+		logger.Log.Error("Failed to create withdrawal", zap.Error(err))
+	}
+	return err
+}
+
+// GetUserWithdrawals возвращает все выводы средств пользователя
+func (s *SQLStorage) GetUserWithdrawals(userID int) ([]*Withdrawal, error) {
+	rows, err := s.DB.Query(`
+		SELECT id, user_id, order_num, sum, processed_at 
+		FROM withdrawals 
+		WHERE user_id = $1 
+		ORDER BY processed_at DESC
+	`, userID)
+	if err != nil {
+		logger.Log.Error("Failed to query user withdrawals", zap.Error(err))
+		return nil, err
+	}
+	defer rows.Close()
+
+	var withdrawals []*Withdrawal
+	for rows.Next() {
+		withdrawal := &Withdrawal{}
+		if err := rows.Scan(&withdrawal.ID, &withdrawal.UserID, &withdrawal.OrderNum, &withdrawal.Sum, &withdrawal.ProcessedAt); err != nil {
+			logger.Log.Error("Failed to scan withdrawal row", zap.Error(err))
+			return nil, err
+		}
+		withdrawals = append(withdrawals, withdrawal)
+	}
+
+	if err = rows.Err(); err != nil {
+		logger.Log.Error("Error iterating withdrawal rows", zap.Error(err))
+		return nil, err
+	}
+
+	return withdrawals, nil
 }

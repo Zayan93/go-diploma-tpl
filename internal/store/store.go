@@ -19,6 +19,10 @@ type OrderStorage interface {
 	GetOrderByNumber(orderNum string) (*Order, error)
 	GetOrdersByUser(userID int) ([]*Order, error)
 	UpdateOrderStatus(orderID int, status string) error
+	GetUserBalance(userID int) (float64, float64, error)
+	UpdateOrderAccrual(orderNum string, accrual float64) error
+	CreateWithdrawal(userID int, orderNum string, sum float64) error
+	GetUserWithdrawals(userID int) ([]*Withdrawal, error)
 }
 
 type Event struct {

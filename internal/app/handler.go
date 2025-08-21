@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Zayan93/go-diploma-tpl/internal/config"
 	"github.com/Zayan93/go-diploma-tpl/internal/logger"
 	"github.com/Zayan93/go-diploma-tpl/internal/store"
 	"go.uber.org/zap"
@@ -26,6 +27,19 @@ type AUTHResponseBody struct {
 	Password string `json:"password"`
 }
 
+// WithdrawalRequest представляет запрос на вывод средств
+type WithdrawalRequest struct {
+	Order string  `json:"order"`
+	Sum   float64 `json:"sum"`
+}
+
+// WithdrawalResponse представляет ответ с информацией о выводе средств
+type WithdrawalResponse struct {
+	Order       string  `json:"order"`
+	Sum         float64 `json:"sum"`
+	ProcessedAt string  `json:"processed_at"`
+}
+
 // OrderResponse представляет заказ в ответе API
 type OrderResponse struct {
 	Number     string   `json:"number"`
@@ -34,16 +48,18 @@ type OrderResponse struct {
 	UploadedAt string   `json:"uploaded_at"`
 }
 
-func NewHandler(userStorage store.UserStorage) *Handler {
+func NewHandler(userStorage store.UserStorage, cfg *config.Config) *Handler {
 	return &Handler{
 		UserStorage:  userStorage,
 		OrderStorage: userStorage.(store.OrderStorage), // Приводим к OrderStorage
+		Config:       cfg,
 	}
 }
 
 type Handler struct {
 	UserStorage  store.UserStorage
 	OrderStorage store.OrderStorage
+	Config       *config.Config // добавляем конфигурацию
 }
 
 // hashPassword хеширует пароль с использованием SHA-256
@@ -260,6 +276,13 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Запускаем асинхронную обработку начисления баллов
+	go func() {
+		if err := h.ProcessOrderAccrual(orderNum); err != nil {
+			logger.Log.Error("Failed to process order accrual", zap.Error(err))
+		}
+	}()
+
 	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 	res.WriteHeader(http.StatusAccepted)
 }
@@ -311,6 +334,225 @@ func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
 	}
 
 	logger.Log.Info("Orders retrieved successfully", zap.Int("userID", userID), zap.Int("count", len(orderResponses)))
+}
+
+// GetUserBalance возвращает текущий баланс пользователя
+func (h *Handler) GetUserBalance(res http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(res, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Проверяем аутентификацию пользователя
+	userID, err := h.getUserIDFromCookie(req)
+	if err != nil {
+		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+		http.Error(res, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Получаем баланс пользователя
+	current, withdrawn, err := h.OrderStorage.GetUserBalance(userID)
+	if err != nil {
+		logger.Log.Error("Failed to get user balance", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Создаем ответ
+	balanceResponse := struct {
+		Current   float64 `json:"current"`
+		Withdrawn float64 `json:"withdrawn"`
+	}{
+		Current:   current,
+		Withdrawn: withdrawn,
+	}
+
+	// Устанавливаем заголовок Content-Type
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+
+	// Кодируем ответ в JSON
+	if err := json.NewEncoder(res).Encode(balanceResponse); err != nil {
+		logger.Log.Error("Failed to encode balance response", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Log.Info("User balance retrieved successfully", zap.Int("userID", userID), zap.Float64("current", current), zap.Float64("withdrawn", withdrawn))
+}
+
+// PostWithdrawBalance обрабатывает запрос на вывод средств
+func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(res, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Проверяем аутентификацию пользователя
+	userID, err := h.getUserIDFromCookie(req)
+	if err != nil {
+		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+		http.Error(res, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Декодируем тело запроса
+	var requestBody WithdrawalRequest
+	if err := json.NewDecoder(req.Body).Decode(&requestBody); err != nil {
+		logger.Log.Error("Failed to decode request body", zap.Error(err))
+		http.Error(res, "Invalid request format", http.StatusBadRequest)
+		return
+	}
+	defer req.Body.Close()
+
+	// Проверяем, что номер заказа и сумма не пустые
+	if requestBody.Order == "" || requestBody.Sum <= 0 {
+		http.Error(res, "Order number and positive sum are required", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем формат номера заказа (должен быть числом)
+	if !h.isValidOrderNumber(requestBody.Order) {
+		http.Error(res, "Invalid order number format", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// Проверяем, существует ли уже заказ с таким номером
+	existingOrder, err := h.OrderStorage.GetOrderByNumber(requestBody.Order)
+	if err != nil {
+		logger.Log.Error("Failed to check if order exists", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if existingOrder != nil {
+		// Заказ уже существует
+		if existingOrder.UserID == userID {
+			// Заказ уже был загружен этим пользователем
+			http.Error(res, "Order already uploaded by this user", http.StatusConflict)
+			return
+		} else {
+			// Заказ уже был загружен другим пользователем
+			http.Error(res, "Order already uploaded by another user", http.StatusConflict)
+			return
+		}
+	}
+
+	// Получаем текущий баланс пользователя
+	current, _, err := h.OrderStorage.GetUserBalance(userID)
+	if err != nil {
+		logger.Log.Error("Failed to get user balance", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Проверяем, достаточно ли средств
+	if current < requestBody.Sum {
+		http.Error(res, "Insufficient funds", http.StatusPaymentRequired)
+		return
+	}
+
+	// Создаем вывод средств
+	err = h.OrderStorage.CreateWithdrawal(userID, requestBody.Order, requestBody.Sum)
+	if err != nil {
+		logger.Log.Error("Failed to create withdrawal", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Создаем заказ с отрицательным начислением (списание)
+	err = h.OrderStorage.CreateOrder(userID, requestBody.Order)
+	if err != nil {
+		logger.Log.Error("Failed to create order for withdrawal", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Устанавливаем отрицательное начисление (списание)
+	err = h.OrderStorage.UpdateOrderAccrual(requestBody.Order, -requestBody.Sum)
+	if err != nil {
+		logger.Log.Error("Failed to update order accrual for withdrawal", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Обновляем статус заказа
+	order, err := h.OrderStorage.GetOrderByNumber(requestBody.Order)
+	if err != nil {
+		logger.Log.Error("Failed to get order for status update", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if order != nil {
+		err = h.OrderStorage.UpdateOrderStatus(order.ID, "PROCESSED")
+		if err != nil {
+			logger.Log.Error("Failed to update order status", zap.Error(err))
+			http.Error(res, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	logger.Log.Info("Withdrawal created successfully",
+		zap.Int("userID", userID),
+		zap.String("orderNum", requestBody.Order),
+		zap.Float64("sum", requestBody.Sum))
+	res.WriteHeader(http.StatusOK)
+}
+
+// GetUserWithdrawals возвращает информацию о выводах средств пользователя
+func (h *Handler) GetUserWithdrawals(res http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.Error(res, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Проверяем аутентификацию пользователя
+	userID, err := h.getUserIDFromCookie(req)
+	if err != nil {
+		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+		http.Error(res, "User not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Получаем выводы средств пользователя
+	withdrawals, err := h.OrderStorage.GetUserWithdrawals(userID)
+	if err != nil {
+		logger.Log.Error("Failed to get user withdrawals", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Если нет выводов, возвращаем 204
+	if len(withdrawals) == 0 {
+		res.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Преобразуем выводы в формат ответа API
+	var withdrawalResponses []WithdrawalResponse
+	for _, withdrawal := range withdrawals {
+		withdrawalResponse := WithdrawalResponse{
+			Order:       withdrawal.OrderNum,
+			Sum:         withdrawal.Sum,
+			ProcessedAt: withdrawal.ProcessedAt,
+		}
+		withdrawalResponses = append(withdrawalResponses, withdrawalResponse)
+	}
+
+	// Устанавливаем заголовок Content-Type
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+
+	// Кодируем ответ в JSON
+	if err := json.NewEncoder(res).Encode(withdrawalResponses); err != nil {
+		logger.Log.Error("Failed to encode withdrawals response", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Log.Info("User withdrawals retrieved successfully", zap.Int("userID", userID), zap.Int("count", len(withdrawalResponses)))
 }
 
 // getUserIDFromCookie извлекает ID пользователя из куки

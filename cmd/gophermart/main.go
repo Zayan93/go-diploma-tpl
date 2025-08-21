@@ -55,7 +55,7 @@ func main() {
 	}
 
 	// Baseurl передаю через dependency injection в хендлеры
-	handler := app.NewHandler(userStorage)
+	handler := app.NewHandler(userStorage, cfg)
 
 	r := chi.NewRouter()
 	r.Use(compressor.GzipMiddleware)
@@ -69,10 +69,21 @@ func main() {
 	r.Post("/api/user/orders", handler.PostOrders)
 	r.Get("/api/user/orders", handler.GetOrders)
 
+	// Маршрут для получения баланса пользователя
+	r.Get("/api/user/balance", handler.GetUserBalance)
+
+	// Маршруты для работы с выводами средств
+	r.Post("/api/user/balance/withdraw", handler.PostWithdrawBalance)
+	r.Get("/api/user/withdrawals", handler.GetUserWithdrawals)
+
+	// Маршрут для заглушки системы лояльности
+	r.Get("/api/orders/{number}", handler.MockLoyaltyHandler)
+
 	// Существующий маршрут (временно отключен)
 	// r.Post("/api/user/register", handler.PostShorten)
 
 	logger.Log.Info("Running server", zap.String("address", cfg.Address))
+	logger.Log.Info("Accrual system address", zap.String("address", cfg.AccrualSystemAddress))
 
 	// Используем стандартный log тк пишет сразу в stderr и завершает программу
 	log.Fatal(http.ListenAndServe(cfg.Address, r))
