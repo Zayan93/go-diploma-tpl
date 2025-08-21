@@ -205,7 +205,6 @@ func (s *SQLStorage) UserExists(ctx context.Context, login string) (bool, error)
 func (s *SQLStorage) CreateOrder(ctx context.Context, userID int, orderNum string) (*Order, error) {
 	var order Order
 	query := `INSERT INTO orders (user_id, order_num, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $4) RETURNING id, user_id, order_num, status, accrual, created_at, updated_at`
-
 	now := time.Now()
 	err := s.DB.QueryRowContext(ctx, query, userID, orderNum, "NEW", now).Scan(
 		&order.ID, &order.UserID, &order.OrderNum, &order.Status, &order.Accrual, &order.CreatedAt, &order.UpdatedAt)
@@ -214,6 +213,8 @@ func (s *SQLStorage) CreateOrder(ctx context.Context, userID int, orderNum strin
 		return nil, fmt.Errorf("failed to create order: %w", err)
 	}
 
+	// Заказ создается со статусом NEW, начисление баллов будет происходить в фоновом режиме
+	logger.Log.Info("Order created with status NEW", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 	return &order, nil
 }
 
@@ -295,29 +296,46 @@ func (s *SQLStorage) UpdateOrderStatusAndAccrual(ctx context.Context, orderNum s
 func (s *SQLStorage) GetUserBalance(ctx context.Context, userID int) (float64, float64, error) {
 	var current, withdrawn float64
 
-	// Получаем текущий баланс (сумма всех начислений)
+	// Получаем текущий баланс из таблицы balances
 	err := s.DB.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(accrual), 0) 
-		FROM orders 
-		WHERE user_id = $1 AND accrual IS NOT NULL AND accrual > 0
-	`, userID).Scan(&current)
+		SELECT COALESCE(current, 0), COALESCE(withdrawn, 0)
+		FROM balances 
+		WHERE user_id = $1
+	`, userID).Scan(&current, &withdrawn)
 	if err != nil {
-		logger.Log.Error("Failed to get current balance", zap.Error(err))
-		return 0, 0, fmt.Errorf("failed to get current balance: %w", err)
-	}
-
-	// Получаем сумму использованных баллов (сумма всех списаний)
-	err = s.DB.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(ABS(accrual)), 0) 
-		FROM orders 
-		WHERE user_id = $1 AND accrual IS NOT NULL AND accrual < 0
-	`, userID).Scan(&withdrawn)
-	if err != nil {
-		logger.Log.Error("Failed to get withdrawn balance", zap.Error(err))
-		return 0, 0, fmt.Errorf("failed to get withdrawn balance: %w", err)
+		if err == sql.ErrNoRows {
+			// Если записи нет, создаем её с нулевыми значениями
+			_, err = s.DB.ExecContext(ctx, `
+				INSERT INTO balances (user_id, current, withdrawn) VALUES ($1, 0, 0)
+			`, userID)
+			if err != nil {
+				logger.Log.Error("Failed to create balance record", zap.Error(err))
+				return 0, 0, fmt.Errorf("failed to create balance record: %w", err)
+			}
+			return 0, 0, nil
+		}
+		logger.Log.Error("Failed to get user balance", zap.Error(err))
+		return 0, 0, fmt.Errorf("failed to get user balance: %w", err)
 	}
 
 	return current, withdrawn, nil
+}
+
+// UpdateBalance обновляет баланс пользователя
+func (s *SQLStorage) UpdateBalance(ctx context.Context, userID int, current, withdrawn float64) error {
+	query := `
+		INSERT INTO balances (user_id, current, withdrawn) 
+		VALUES ($1, $2, $3) 
+		ON CONFLICT (user_id) 
+		DO UPDATE SET current = $2, withdrawn = $3
+	`
+
+	_, err := s.DB.ExecContext(ctx, query, userID, current, withdrawn)
+	if err != nil {
+		logger.Log.Error("Failed to update user balance", zap.Error(err))
+		return fmt.Errorf("failed to update user balance: %w", err)
+	}
+	return nil
 }
 
 // UpdateOrderAccrual обновляет начисление заказа

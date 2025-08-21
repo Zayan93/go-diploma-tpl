@@ -21,7 +21,9 @@ type OrderStorage interface {
 	GetOrdersByUser(ctx context.Context, userID int) ([]*Order, error)
 	UpdateOrderStatus(ctx context.Context, orderID int, status string) error
 	UpdateOrderStatusAndAccrual(ctx context.Context, orderNum string, status string, accrual *float64) error
+	// Методы для работы с балансами
 	GetUserBalance(ctx context.Context, userID int) (float64, float64, error)
+	UpdateBalance(ctx context.Context, userID int, current, withdrawn float64) error
 	UpdateOrderAccrual(ctx context.Context, orderNum string, accrual float64) error
 	CreateWithdrawal(ctx context.Context, userID int, orderNum string, sum float64) error
 	GetUserWithdrawals(ctx context.Context, userID int) ([]*Withdrawal, error)
