@@ -86,6 +86,15 @@ func (s *SQLStorage) initTable() error {
 		logger.Log.Info("Table users created or already exists")
 	}
 
+	// Обновляем размер поля password для поддержки bcrypt хешей (если нужно)
+	_, err = s.DB.Exec(`
+		ALTER TABLE users ALTER COLUMN password TYPE VARCHAR(255);
+	`)
+	if err != nil {
+		// Игнорируем ошибку, если колонка уже имеет нужный размер
+		logger.Log.Debug("Password column size update (ignored if already correct)", zap.Error(err))
+	}
+
 	// Создаем таблицу заказов
 	_, err = s.DB.Exec(`
 		CREATE TABLE IF NOT EXISTS orders (

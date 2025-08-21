@@ -10,6 +10,8 @@ import (
 	"github.com/Zayan93/go-diploma-tpl/internal/compressor"
 	"github.com/Zayan93/go-diploma-tpl/internal/config"
 	"github.com/Zayan93/go-diploma-tpl/internal/logger"
+	"github.com/Zayan93/go-diploma-tpl/internal/middleware"
+	"github.com/Zayan93/go-diploma-tpl/internal/services"
 	"github.com/Zayan93/go-diploma-tpl/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -56,27 +58,30 @@ func main() {
 		log.Fatalf("failed to initialize any storage backend")
 	}
 
+	// Создаем сервис аутентификации
+	authService := services.NewAuthService(cfg.JWTSecret)
+
 	// Baseurl передаю через dependency injection в хендлеры
-	handler := app.NewHandler(userStorage, cfg)
+	handler := app.NewHandler(userStorage, authService, cfg)
 
 	r := chi.NewRouter()
 	r.Use(compressor.GzipMiddleware)
 	r.Use(logger.WithLogging)
 
-	// Маршруты для аутентификации
+	// Маршруты для аутентификации (без middleware)
 	r.Post("/api/user/register", handler.PostRegister)
 	r.Post("/api/user/login", handler.PostLogin)
 
-	// Маршруты для заказов
-	r.Post("/api/user/orders", handler.PostOrders)
-	r.Get("/api/user/orders", handler.GetOrders)
+	// Маршруты для заказов (с middleware аутентификации)
+	r.With(middleware.AuthMiddleware(authService)).Post("/api/user/orders", handler.PostOrders)
+	r.With(middleware.AuthMiddleware(authService)).Get("/api/user/orders", handler.GetOrders)
 
-	// Маршрут для получения баланса пользователя
-	r.Get("/api/user/balance", handler.GetUserBalance)
+	// Маршрут для получения баланса пользователя (с middleware аутентификации)
+	r.With(middleware.AuthMiddleware(authService)).Get("/api/user/balance", handler.GetUserBalance)
 
-	// Маршруты для работы с выводами средств
-	r.Post("/api/user/balance/withdraw", handler.PostWithdrawBalance)
-	r.Get("/api/user/withdrawals", handler.GetUserWithdrawals)
+	// Маршруты для работы с выводами средств (с middleware аутентификации)
+	r.With(middleware.AuthMiddleware(authService)).Post("/api/user/balance/withdraw", handler.PostWithdrawBalance)
+	r.With(middleware.AuthMiddleware(authService)).Get("/api/user/withdrawals", handler.GetUserWithdrawals)
 
 	logger.Log.Info("Running server", zap.String("address", cfg.Address))
 	logger.Log.Info("Accrual system address", zap.String("address", cfg.AccrualSystemAddress))

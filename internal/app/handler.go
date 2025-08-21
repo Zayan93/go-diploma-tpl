@@ -11,6 +11,8 @@ import (
 
 	"github.com/Zayan93/go-diploma-tpl/internal/config"
 	"github.com/Zayan93/go-diploma-tpl/internal/logger"
+	"github.com/Zayan93/go-diploma-tpl/internal/middleware"
+	"github.com/Zayan93/go-diploma-tpl/internal/services"
 	"github.com/Zayan93/go-diploma-tpl/internal/store"
 	"go.uber.org/zap"
 )
@@ -46,10 +48,11 @@ type OrderResponse struct {
 	UploadedAt string   `json:"uploaded_at"`
 }
 
-func NewHandler(userStorage store.UserStorage, cfg *config.Config) *Handler {
+func NewHandler(userStorage store.UserStorage, authService *services.AuthService, cfg *config.Config) *Handler {
 	return &Handler{
 		UserStorage:  userStorage,
 		OrderStorage: userStorage.(store.OrderStorage), // Приводим к OrderStorage
+		AuthService:  authService,
 		Config:       cfg,
 	}
 }
@@ -57,10 +60,11 @@ func NewHandler(userStorage store.UserStorage, cfg *config.Config) *Handler {
 type Handler struct {
 	UserStorage  store.UserStorage
 	OrderStorage store.OrderStorage
+	AuthService  *services.AuthService
 	Config       *config.Config // добавляем конфигурацию
 }
 
-// hashPassword хеширует пароль с использованием SHA-256
+// hashPassword хеширует пароль с использованием SHA-256 (оставляем для совместимости)
 func hashPassword(password string) string {
 	hash := sha256.Sum256([]byte(password))
 	return fmt.Sprintf("%x", hash)
@@ -100,8 +104,13 @@ func (h *Handler) PostRegister(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Хешируем пароль
-	hashedPassword := hashPassword(requestBody.Password)
+	// Хешируем пароль с помощью bcrypt
+	hashedPassword, err := h.AuthService.HashPassword(requestBody.Password)
+	if err != nil {
+		logger.Log.Error("Failed to hash password", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	// Создаем пользователя
 	if err := h.UserStorage.CreateUser(req.Context(), requestBody.Login, hashedPassword); err != nil {
@@ -110,7 +119,7 @@ func (h *Handler) PostRegister(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Получаем созданного пользователя для установки куки
+	// Получаем созданного пользователя для генерации токена
 	user, err := h.UserStorage.GetUserByLogin(req.Context(), requestBody.Login)
 	if err != nil {
 		logger.Log.Error("Failed to get created user", zap.Error(err))
@@ -118,16 +127,16 @@ func (h *Handler) PostRegister(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	cookie := &http.Cookie{
-		Name:     "user_id",
-		Value:    fmt.Sprintf("%d", user.ID),
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
+	// Генерируем JWT токен
+	token, err := h.AuthService.GenerateJWT(user.ID, user.Login)
+	if err != nil {
+		logger.Log.Error("Failed to generate JWT token", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
 	}
-	http.SetCookie(res, cookie)
 
+	// Устанавливаем токен в заголовок
+	res.Header().Set("Authorization", "Bearer "+token)
 	logger.Log.Info("User registered successfully", zap.String("login", requestBody.Login))
 	res.WriteHeader(http.StatusOK)
 }
@@ -167,23 +176,22 @@ func (h *Handler) PostLogin(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Проверяем пароль
-	hashedPassword := hashPassword(requestBody.Password)
-	if user.Password != hashedPassword {
+	// Проверяем пароль с помощью bcrypt
+	if err := h.AuthService.CheckPassword(user.Password, requestBody.Password); err != nil {
 		http.Error(res, "Invalid login or password", http.StatusUnauthorized)
 		return
 	}
 
-	cookie := &http.Cookie{
-		Name:     "user_id",
-		Value:    fmt.Sprintf("%d", user.ID),
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
+	// Генерируем JWT токен
+	token, err := h.AuthService.GenerateJWT(user.ID, user.Login)
+	if err != nil {
+		logger.Log.Error("Failed to generate JWT token", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
 	}
-	http.SetCookie(res, cookie)
 
+	// Устанавливаем токен в заголовок
+	res.Header().Set("Authorization", "Bearer "+token)
 	logger.Log.Info("User logged in successfully", zap.String("login", requestBody.Login))
 	res.WriteHeader(http.StatusOK)
 }
@@ -191,9 +199,8 @@ func (h *Handler) PostLogin(res http.ResponseWriter, req *http.Request) {
 // PostOrders обрабатывает загрузку номера заказа пользователем
 func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
-	if err != nil {
-		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+	userID, ok := middleware.GetUserIDFromContext(req.Context())
+	if !ok {
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
@@ -263,9 +270,8 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 // GetOrders возвращает список заказов пользователя
 func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
-	if err != nil {
-		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+	userID, ok := middleware.GetUserIDFromContext(req.Context())
+	if !ok {
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
@@ -312,9 +318,8 @@ func (h *Handler) GetUserBalance(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
-	if err != nil {
-		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+	userID, ok := middleware.GetUserIDFromContext(req.Context())
+	if !ok {
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
@@ -358,9 +363,8 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
-	if err != nil {
-		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+	userID, ok := middleware.GetUserIDFromContext(req.Context())
+	if !ok {
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
@@ -477,9 +481,8 @@ func (h *Handler) GetUserWithdrawals(res http.ResponseWriter, req *http.Request)
 	}
 
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
-	if err != nil {
-		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
+	userID, ok := middleware.GetUserIDFromContext(req.Context())
+	if !ok {
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
 		return
 	}
@@ -521,25 +524,6 @@ func (h *Handler) GetUserWithdrawals(res http.ResponseWriter, req *http.Request)
 	}
 
 	logger.Log.Info("User withdrawals retrieved successfully", zap.Int("userID", userID), zap.Int("count", len(withdrawalResponses)))
-}
-
-// getUserIDFromCookie извлекает ID пользователя из куки
-func (h *Handler) getUserIDFromCookie(req *http.Request) (int, error) {
-	cookie, err := req.Cookie("user_id")
-	if err != nil {
-		// Куки нет, значит пользователь не авторизован
-		return 0, err
-	}
-
-	// Кука есть, возвращаем существующий ID
-	userID, err := strconv.Atoi(cookie.Value)
-	if err != nil {
-		logger.Log.Error("Failed to parse user ID from cookie", zap.String("cookieValue", cookie.Value), zap.Error(err))
-		return 0, fmt.Errorf("invalid user ID in cookie")
-	}
-
-	logger.Log.Info("Using existing user ID", zap.Int("userID", userID))
-	return userID, nil
 }
 
 // isValidOrderNumber проверяет, является ли номер заказа валидным

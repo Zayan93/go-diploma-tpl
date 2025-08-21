@@ -12,6 +12,7 @@ type Config struct {
 	FileStoragePath      string // путь до файла с данными
 	DatabaseDSN          string // подключение к базе данных (host)
 	AccrualSystemAddress string // адрес системы расчёта начислений
+	JWTSecret            string // секретный ключ для JWT токенов
 }
 
 // New создает и инициализирует конфигурацию из флагов командной строки
@@ -22,6 +23,7 @@ func New() *Config {
 	defaultFileStoragePath := "./storage.txt"
 	defaultDBDSN := "host=localhost user=postgres password=fmx274TQVw111w111w dbname=users sslmode=disable"
 	defaultAccrualSystemAddress := "http://localhost:8081"
+	defaultJWTSecret := "your-secret-key-here"
 
 	// Приоритет: переменные окружения, затем флаги командной строки
 	envAddress := os.Getenv("RUN_ADDRESS")
@@ -30,6 +32,7 @@ func New() *Config {
 	envFileStoragePath := os.Getenv("FILE_STORAGE_PATH")
 	envDatabaseDSN := os.Getenv("DATABASE_URI")
 	envAccrualSystemAddress := os.Getenv("ACCRUAL_SYSTEM_ADDRESS")
+	envJWTSecret := os.Getenv("JWT_SECRET")
 
 	// Устанавливаем значения по умолчанию, если переменные окружения не заданы
 	if envAddress == "" {
@@ -50,6 +53,9 @@ func New() *Config {
 	if envAccrualSystemAddress == "" {
 		envAccrualSystemAddress = defaultAccrualSystemAddress
 	}
+	if envJWTSecret == "" {
+		envJWTSecret = defaultJWTSecret
+	}
 
 	// Флаги командной строки (имеют приоритет над переменными окружения)
 	addr := flag.String("a", envAddress, "HTTP server address")
@@ -58,6 +64,7 @@ func New() *Config {
 	fileStoragePath := flag.String("f", envFileStoragePath, "File storage path")
 	databaseDSN := flag.String("d", envDatabaseDSN, "Database DSN for connection")
 	accrualSystemAddress := flag.String("r", envAccrualSystemAddress, "Accrual system address")
+	jwtSecret := flag.String("j", envJWTSecret, "JWT secret key")
 	flag.Parse()
 
 	return &Config{
@@ -67,5 +74,6 @@ func New() *Config {
 		FileStoragePath:      *fileStoragePath,
 		DatabaseDSN:          *databaseDSN,
 		AccrualSystemAddress: *accrualSystemAddress,
+		JWTSecret:            *jwtSecret,
 	}
 }
