@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -36,7 +37,8 @@ func main() {
 		if err != nil {
 			logger.Log.Error("Failed to open database connection", zap.Error(err))
 		} else {
-			if err = db.Ping(); err != nil {
+			ctx := context.Background()
+			if err = db.PingContext(ctx); err != nil {
 				logger.Log.Error("Failed to ping database", zap.Error(err))
 			} else {
 				psqlStorage, err := store.NewSQLStorage(db)
@@ -75,12 +77,6 @@ func main() {
 	// Маршруты для работы с выводами средств
 	r.Post("/api/user/balance/withdraw", handler.PostWithdrawBalance)
 	r.Get("/api/user/withdrawals", handler.GetUserWithdrawals)
-
-	// Маршрут для заглушки системы лояльности
-	r.Get("/api/orders/{number}", handler.MockLoyaltyHandler)
-
-	// Существующий маршрут (временно отключен)
-	// r.Post("/api/user/register", handler.PostShorten)
 
 	logger.Log.Info("Running server", zap.String("address", cfg.Address))
 	logger.Log.Info("Accrual system address", zap.String("address", cfg.AccrualSystemAddress))

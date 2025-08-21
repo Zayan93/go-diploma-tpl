@@ -2,27 +2,40 @@ package store
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"os"
 )
 
 // UserStorage интерфейс для работы с пользователями
 type UserStorage interface {
-	CreateUser(login, password string) error
-	GetUserByLogin(login string) (*User, error)
-	UserExists(login string) (bool, error)
+	CreateUser(ctx context.Context, login, password string) error
+	GetUserByLogin(ctx context.Context, login string) (*User, error)
+	UserExists(ctx context.Context, login string) (bool, error)
 }
 
 // OrderStorage интерфейс для работы с заказами
 type OrderStorage interface {
-	CreateOrder(userID int, orderNum string) (*Order, error)
-	GetOrderByNumber(orderNum string) (*Order, error)
-	GetOrdersByUser(userID int) ([]*Order, error)
-	UpdateOrderStatus(orderID int, status string) error
-	GetUserBalance(userID int) (float64, float64, error)
-	UpdateOrderAccrual(orderNum string, accrual float64) error
-	CreateWithdrawal(userID int, orderNum string, sum float64) error
-	GetUserWithdrawals(userID int) ([]*Withdrawal, error)
+	CreateOrder(ctx context.Context, userID int, orderNum string) (*Order, error)
+	GetOrderByNumber(ctx context.Context, orderNum string) (*Order, error)
+	GetOrdersByUser(ctx context.Context, userID int) ([]*Order, error)
+	UpdateOrderStatus(ctx context.Context, orderID int, status string) error
+	UpdateOrderStatusAndAccrual(ctx context.Context, orderNum string, status string, accrual *float64) error
+	GetUserBalance(ctx context.Context, userID int) (float64, float64, error)
+	UpdateOrderAccrual(ctx context.Context, orderNum string, accrual float64) error
+	CreateWithdrawal(ctx context.Context, userID int, orderNum string, sum float64) error
+	GetUserWithdrawals(ctx context.Context, userID int) ([]*Withdrawal, error)
+	GetOrdersByStatus(ctx context.Context, statuses []string) ([]*Order, error)
+	GetOrdersByStatusPaginated(ctx context.Context, statuses []string, limit, offset int) ([]*Order, error)
+	UpdateOrderStatusAndBalance(ctx context.Context, orderNumber string, status string, accrual *float64, userID int, newCurrent, withdrawn float64) error
+}
+
+// Storage общий интерфейс для всех операций с хранилищем
+type Storage interface {
+	UserStorage
+	OrderStorage
+	Ping(ctx context.Context) error
+	Close() error
 }
 
 type Event struct {
