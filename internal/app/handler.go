@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Zayan93/go-diploma-tpl/internal/config"
 	"github.com/Zayan93/go-diploma-tpl/internal/logger"
@@ -68,31 +67,6 @@ func hashPassword(password string) string {
 	return fmt.Sprintf("%x", hash)
 }
 
-// generateSessionID генерирует уникальный идентификатор сессии
-func generateSessionID() string {
-	b := make([]byte, 32)
-	_, err := rand.Read(b)
-	if err != nil {
-		return ""
-	}
-	return base64.URLEncoding.EncodeToString(b)
-}
-
-// setAuthCookie устанавливает куки для аутентификации
-func (h *Handler) setAuthCookie(res http.ResponseWriter, userID string) {
-	sessionID := generateSessionID()
-	cookie := &http.Cookie{
-		Name:     "session_id",
-		Value:    sessionID,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
-		Expires:  time.Now().Add(24 * time.Hour), // Сессия на 24 часа
-	}
-	http.SetCookie(res, cookie)
-}
-
 // PostRegister обрабатывает регистрацию пользователя
 func (h *Handler) PostRegister(res http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
@@ -137,16 +111,15 @@ func (h *Handler) PostRegister(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Получаем созданного пользователя для установки куки
-	user, err := h.UserStorage.GetUserByLogin(requestBody.Login)
-	if err != nil {
-		logger.Log.Error("Failed to get created user", zap.Error(err))
-		http.Error(res, "Internal server error", http.StatusInternalServerError)
-		return
+	cookie := &http.Cookie{
+		Name:     "user_id",
+		Value:    requestBody.Login,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
 	}
-
-	// Устанавливаем куки для автоматической аутентификации
-	h.setAuthCookie(res, fmt.Sprintf("%d", user.ID))
+	http.SetCookie(res, cookie)
 
 	logger.Log.Info("User registered successfully", zap.String("login", requestBody.Login))
 	res.WriteHeader(http.StatusOK)
@@ -194,8 +167,15 @@ func (h *Handler) PostLogin(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Устанавливаем куки для аутентификации
-	h.setAuthCookie(res, fmt.Sprintf("%d", user.ID))
+	cookie := &http.Cookie{
+		Name:     "user_id",
+		Value:    requestBody.Login,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(res, cookie)
 
 	logger.Log.Info("User logged in successfully", zap.String("login", requestBody.Login))
 	res.WriteHeader(http.StatusOK)
@@ -203,13 +183,8 @@ func (h *Handler) PostLogin(res http.ResponseWriter, req *http.Request) {
 
 // PostOrders обрабатывает загрузку номера заказа пользователем
 func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(res, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
+	userID, err := h.getUserIDFromCookie(res, req)
 	if err != nil {
 		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
@@ -249,12 +224,12 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		// Заказ уже существует
 		if existingOrder.UserID == userID {
 			// Заказ уже был загружен этим пользователем
-			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
+			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.String("userID", userID))
 			res.WriteHeader(http.StatusOK)
 			return
 		} else {
 			// Заказ уже был загружен другим пользователем
-			logger.Log.Info("Order already uploaded by another user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
+			logger.Log.Info("Order already uploaded by another user", zap.String("orderNum", orderNum), zap.String("userID", userID))
 			http.Error(res, "Order already uploaded by another user", http.StatusConflict)
 			return
 		}
@@ -275,19 +250,14 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		}
 	}()
 
-	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.Int("userID", userID))
+	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.String("userID", userID))
 	res.WriteHeader(http.StatusAccepted)
 }
 
 // GetOrders возвращает список заказов пользователя
 func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		http.Error(res, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
+	userID, err := h.getUserIDFromCookie(res, req)
 	if err != nil {
 		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
@@ -325,7 +295,7 @@ func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	logger.Log.Info("Orders retrieved successfully", zap.Int("userID", userID), zap.Int("count", len(orderResponses)))
+	logger.Log.Info("Orders retrieved successfully", zap.String("userID", userID), zap.Int("count", len(orderResponses)))
 }
 
 // GetUserBalance возвращает текущий баланс пользователя
@@ -336,7 +306,7 @@ func (h *Handler) GetUserBalance(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
+	userID, err := h.getUserIDFromCookie(res, req)
 	if err != nil {
 		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
@@ -371,7 +341,7 @@ func (h *Handler) GetUserBalance(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	logger.Log.Info("User balance retrieved successfully", zap.Int("userID", userID), zap.Float64("current", current), zap.Float64("withdrawn", withdrawn))
+	logger.Log.Info("User balance retrieved successfully", zap.String("userID", userID), zap.Float64("current", current), zap.Float64("withdrawn", withdrawn))
 }
 
 // PostWithdrawBalance обрабатывает запрос на вывод средств
@@ -382,7 +352,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
+	userID, err := h.getUserIDFromCookie(res, req)
 	if err != nil {
 		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
@@ -487,7 +457,7 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	logger.Log.Info("Withdrawal created successfully",
-		zap.Int("userID", userID),
+		zap.String("userID", userID),
 		zap.String("orderNum", requestBody.Order),
 		zap.Float64("sum", requestBody.Sum))
 	res.WriteHeader(http.StatusOK)
@@ -501,7 +471,7 @@ func (h *Handler) GetUserWithdrawals(res http.ResponseWriter, req *http.Request)
 	}
 
 	// Проверяем аутентификацию пользователя
-	userID, err := h.getUserIDFromCookie(req)
+	userID, err := h.getUserIDFromCookie(res, req)
 	if err != nil {
 		logger.Log.Error("Failed to get user ID from cookie", zap.Error(err))
 		http.Error(res, "User not authenticated", http.StatusUnauthorized)
@@ -544,20 +514,29 @@ func (h *Handler) GetUserWithdrawals(res http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	logger.Log.Info("User withdrawals retrieved successfully", zap.Int("userID", userID), zap.Int("count", len(withdrawalResponses)))
+	logger.Log.Info("User withdrawals retrieved successfully", zap.String("userID", userID), zap.Int("count", len(withdrawalResponses)))
+}
+
+func generateUserID() string {
+	b := make([]byte, 6)
+	_, err := rand.Read(b)
+	if err != nil {
+		return ""
+	}
+	return base64.URLEncoding.EncodeToString(b)
 }
 
 // getUserIDFromCookie извлекает ID пользователя из куки
-func (h *Handler) getUserIDFromCookie(req *http.Request) (int, error) {
-	_, err := req.Cookie("session_id")
+func (h *Handler) getUserIDFromCookie(res http.ResponseWriter, req *http.Request) (string, error) {
+	cookie, err := req.Cookie("user_id")
 	if err != nil {
-		return 0, err
+		// Куки нет, значит пользователь не авторизован
+		return "", err
 	}
 
-	// TODO: Реализовать проверку сессии и получение userID
-	// Пока что возвращаем заглушку
-	// В реальной реализации здесь должна быть проверка сессии
-	return 1, nil
+	// Кука есть, возвращаем существующий ID
+	logger.Log.Info("Using existing user ID", zap.String("userID", cookie.Value))
+	return cookie.Value, nil
 }
 
 // isValidOrderNumber проверяет, является ли номер заказа валидным

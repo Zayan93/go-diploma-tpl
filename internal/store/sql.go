@@ -36,7 +36,7 @@ type User struct {
 // Order представляет заказ в системе
 type Order struct {
 	ID        int      `json:"id"`
-	UserID    int      `json:"user_id"`
+	UserID    string   `json:"user_id"`
 	OrderNum  string   `json:"order_num"`
 	Status    string   `json:"status"`
 	Accrual   *float64 `json:"accrual,omitempty"`
@@ -47,7 +47,7 @@ type Order struct {
 // Withdrawal представляет вывод средств пользователя
 type Withdrawal struct {
 	ID          int     `json:"id"`
-	UserID      int     `json:"user_id"`
+	UserID      string  `json:"user_id"`
 	OrderNum    string  `json:"order"`
 	Sum         float64 `json:"sum"`
 	ProcessedAt string  `json:"processed_at"`
