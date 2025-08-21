@@ -305,7 +305,7 @@ func (s *SQLStorage) UserExists(login string) (bool, error) {
 
 // CreateOrder создает новый заказ
 func (s *SQLStorage) CreateOrder(userID int, orderNum string) error {
-	_, err := s.DB.Exec(`INSERT INTO orders (user_id, order_num) VALUES ($1, $2)`, userID, orderNum)
+	_, err := s.DB.Exec(`INSERT INTO orders (user_id, order_num) VALUES ($1, $2) ON CONFLICT (order_num) DO NOTHING`, userID, orderNum)
 	if err != nil {
 		logger.Log.Error("Failed to create order", zap.Error(err))
 	}

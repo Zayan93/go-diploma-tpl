@@ -237,7 +237,15 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Проверяем, существует ли уже заказ с таким номером
+	// Пытаемся создать новый заказ
+	err = h.OrderStorage.CreateOrder(userID, orderNum)
+	if err != nil {
+		logger.Log.Error("Failed to create order", zap.Error(err))
+		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Проверяем, был ли заказ создан или уже существовал
 	existingOrder, err := h.OrderStorage.GetOrderByNumber(orderNum)
 	if err != nil {
 		logger.Log.Error("Failed to check if order exists", zap.Error(err))
@@ -258,14 +266,6 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "Order already uploaded by another user", http.StatusConflict)
 			return
 		}
-	}
-
-	// Создаем новый заказ
-	err = h.OrderStorage.CreateOrder(userID, orderNum)
-	if err != nil {
-		logger.Log.Error("Failed to create order", zap.Error(err))
-		http.Error(res, "Internal server error", http.StatusInternalServerError)
-		return
 	}
 
 	// Запускаем асинхронную обработку начисления баллов
