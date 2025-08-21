@@ -78,7 +78,7 @@ func (l *LoyaltyService) GetOrderAccrual(orderNum string) (*OrderAccrualResponse
 }
 
 // ProcessOrderAccrual обрабатывает заказ и обновляет начисление баллов
-func (h *Handler) ProcessOrderAccrual(orderNum string) error {
+func (h *Handler) ProcessOrderAccrual(req *http.Request, orderNum string) error {
 	// Получаем информацию о начислении от внешней системы лояльности
 	loyaltyService := NewLoyaltyService(h.Config.AccrualSystemAddress)
 	response, err := loyaltyService.GetOrderAccrual(orderNum)
@@ -89,21 +89,21 @@ func (h *Handler) ProcessOrderAccrual(orderNum string) error {
 
 	// Если заказ обработан и есть начисление, обновляем его в базе
 	if response.Status == "PROCESSED" && response.Accrual != nil {
-		err = h.OrderStorage.UpdateOrderAccrual(orderNum, *response.Accrual)
+		err = h.OrderStorage.UpdateOrderAccrual(req.Context(), orderNum, *response.Accrual)
 		if err != nil {
 			logger.Log.Error("Failed to update order accrual in database", zap.Error(err))
 			return err
 		}
 
 		// Обновляем статус заказа
-		order, err := h.OrderStorage.GetOrderByNumber(orderNum)
+		order, err := h.OrderStorage.GetOrderByNumber(req.Context(), orderNum)
 		if err != nil {
 			logger.Log.Error("Failed to get order for status update", zap.Error(err))
 			return err
 		}
 
 		if order != nil {
-			err = h.OrderStorage.UpdateOrderStatus(order.ID, "PROCESSED")
+			err = h.OrderStorage.UpdateOrderStatus(req.Context(), order.ID, "PROCESSED")
 			if err != nil {
 				logger.Log.Error("Failed to update order status", zap.Error(err))
 				return err
