@@ -322,8 +322,15 @@ func (s *SQLStorage) GetOrderByNumber(orderNum string) (*Order, error) {
 	`, orderNum).Scan(&order.ID, &order.UserID, &order.OrderNum, &order.Status, &order.Accrual, &order.CreatedAt, &order.UpdatedAt)
 
 	if err == sql.ErrNoRows {
+		logger.Log.Info("Order not found", zap.String("orderNum", orderNum))
 		return nil, nil
 	}
+	if err != nil {
+		logger.Log.Error("Failed to get order by number", zap.Error(err))
+		return nil, err
+	}
+
+	logger.Log.Info("Order found", zap.String("orderNum", orderNum), zap.Int("userID", order.UserID))
 	return &order, nil
 }
 

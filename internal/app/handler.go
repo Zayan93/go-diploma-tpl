@@ -197,6 +197,8 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	logger.Log.Info("User authenticated for order upload", zap.Int("userID", userID))
+
 	// Читаем номер заказа из тела запроса
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -212,6 +214,8 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	logger.Log.Info("Processing order number", zap.String("orderNum", orderNum))
+
 	// Проверяем формат номера заказа (должен быть числом)
 	if !h.isValidOrderNumber(orderNum) {
 		http.Error(res, "Invalid order number format", http.StatusUnprocessableEntity)
@@ -226,12 +230,14 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	logger.Log.Info("Checking existing order", zap.String("orderNum", orderNum), zap.Any("existingOrder", existingOrder))
+
 	if existingOrder != nil {
 		// Заказ уже существует
 		if existingOrder.UserID == userID {
 			// Заказ уже был загружен этим пользователем
 			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
-			http.Error(res, "Order already uploaded by this user", http.StatusOK)
+			res.WriteHeader(http.StatusOK)
 			return
 		} else {
 			// Заказ уже был загружен другим пользователем
