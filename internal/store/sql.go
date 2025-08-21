@@ -315,21 +315,6 @@ func (s *SQLStorage) CreateOrder(userID int, orderNum string) (*Order, error) {
 		return nil, err
 	}
 
-	// Вычисляем начисление баллов на основе номера заказа
-	accrual := s.calculateOrderAccrual(orderNum)
-	if accrual > 0 {
-		// Обновляем заказ с начислением
-		err = s.UpdateOrderAccrual(orderNum, accrual)
-		if err != nil {
-			logger.Log.Error("Failed to update order accrual", zap.Error(err))
-		}
-		// Обновляем статус заказа
-		err = s.UpdateOrderStatus(order.ID, "PROCESSED")
-		if err != nil {
-			logger.Log.Error("Failed to update order status", zap.Error(err))
-		}
-	}
-
 	return &order, nil
 }
 

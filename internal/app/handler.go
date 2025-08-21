@@ -197,8 +197,6 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	logger.Log.Info("User authenticated for order upload", zap.Int("userID", userID))
-
 	// Читаем номер заказа из тела запроса
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -209,12 +207,6 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 	defer req.Body.Close()
 
 	orderNum := string(body)
-	if orderNum == "" {
-		http.Error(res, "Order number is required", http.StatusBadRequest)
-		return
-	}
-
-	logger.Log.Info("Processing order number", zap.String("orderNum", orderNum))
 
 	// Проверяем формат номера заказа (должен быть числом)
 	if !h.isValidOrderNumber(orderNum) {
@@ -226,34 +218,28 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 	existingOrder, err := h.OrderStorage.GetOrderByNumber(orderNum)
 	if err != nil {
 		logger.Log.Error("Failed to check if order exists", zap.Error(err))
-		http.Error(res, "Internal server error", http.StatusInternalServerError)
+		http.Error(res, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-
-	logger.Log.Info("Checking existing order", zap.String("orderNum", orderNum), zap.Any("existingOrder", existingOrder))
 
 	if existingOrder != nil {
 		// Заказ уже существует
 		if existingOrder.UserID == userID {
 			// Заказ уже был загружен этим пользователем
-			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 			res.WriteHeader(http.StatusOK)
 		} else {
-			// Заказ уже был загружен другим пользователем
-			logger.Log.Info("Order already uploaded by another user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 			http.Error(res, "Order already uploaded by another user", http.StatusConflict)
 		}
+		return
 	}
 
 	// Создаем новый заказ (начисление баллов происходит автоматически в CreateOrder)
-	order, err := h.OrderStorage.CreateOrder(userID, orderNum)
+	_, err = h.OrderStorage.CreateOrder(userID, orderNum)
 	if err != nil {
 		logger.Log.Error("Failed to create order", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
-	logger.Log.Info("Order created with accrual", zap.String("orderNum", orderNum), zap.Int("userID", userID), zap.Any("accrual", order.Accrual))
 
 	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 	res.WriteHeader(http.StatusAccepted)
@@ -277,30 +263,15 @@ func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Преобразуем заказы в формат ответа API
-	var orderResponses []OrderResponse
-	for _, order := range orders {
-		orderResponse := OrderResponse{
-			Number:     order.OrderNum,
-			Status:     order.Status,
-			Accrual:    order.Accrual,
-			UploadedAt: order.CreatedAt,
-		}
-		orderResponses = append(orderResponses, orderResponse)
+	if len(orders) == 0 {
+		res.Header().Set("Content-Type", "application/json")
+		res.Write([]byte("[]"))
+		return
 	}
 
 	// Устанавливаем заголовок Content-Type
 	res.Header().Set("Content-Type", "application/json")
-	res.WriteHeader(http.StatusOK)
-
-	// Кодируем ответ в JSON
-	if err := json.NewEncoder(res).Encode(orderResponses); err != nil {
-		logger.Log.Error("Failed to encode orders response", zap.Error(err))
-		http.Error(res, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	logger.Log.Info("Orders retrieved successfully", zap.Int("userID", userID), zap.Int("count", len(orderResponses)))
+	json.NewEncoder(res).Encode(orders)
 }
 
 // GetUserBalance возвращает текущий баланс пользователя
