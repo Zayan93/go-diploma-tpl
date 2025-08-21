@@ -201,14 +201,6 @@ func (h *Handler) PostLogin(res http.ResponseWriter, req *http.Request) {
 	res.WriteHeader(http.StatusOK)
 }
 
-// PostShorten - хендлер для сокращения URL (заглушка для совместимости)
-func (h *Handler) PostShorten(res http.ResponseWriter, req *http.Request) {
-	// Этот хендлер оставлен для совместимости, но требует доработки
-	// для работы с URL сокращением
-	res.WriteHeader(http.StatusNotImplemented)
-	res.Write([]byte("URL shortening functionality not implemented yet"))
-}
-
 // PostOrders обрабатывает загрузку номера заказа пользователем
 func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
