@@ -15,21 +15,21 @@ type UserStorage interface {
 
 // OrderStorage интерфейс для работы с заказами
 type OrderStorage interface {
-	CreateOrder(userID string, orderNum string) error
+	CreateOrder(userID int, orderNum string) error
 	GetOrderByNumber(orderNum string) (*Order, error)
-	GetOrdersByUser(userID string) ([]*Order, error)
+	GetOrdersByUser(userID int) ([]*Order, error)
 	UpdateOrderStatus(orderID int, status string) error
-	GetUserBalance(userID string) (float64, float64, error)
+	GetUserBalance(userID int) (float64, float64, error)
 	UpdateOrderAccrual(orderNum string, accrual float64) error
-	CreateWithdrawal(userID string, orderNum string, sum float64) error
-	GetUserWithdrawals(userID string) ([]*Withdrawal, error)
+	CreateWithdrawal(userID int, orderNum string, sum float64) error
+	GetUserWithdrawals(userID int) ([]*Withdrawal, error)
 }
 
 type Event struct {
 	UUID        uint   `json:"uuid"`
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
-	UserID      string `json:"user_id"`
+	UserID      int    `json:"user_id"`
 	DeletedFlag bool   `json:"deleted_flag"`
 }
 
