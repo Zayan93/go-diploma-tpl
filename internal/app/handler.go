@@ -1,9 +1,7 @@
 package app
 
 import (
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -64,12 +62,6 @@ type Handler struct {
 	AuthService    *services.AuthService
 	AccrualService *services.AccrualService
 	Config         *config.Config // добавляем конфигурацию
-}
-
-// hashPassword хеширует пароль с использованием SHA-256 (оставляем для совместимости)
-func hashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password))
-	return fmt.Sprintf("%x", hash)
 }
 
 // PostRegister обрабатывает регистрацию пользователя
@@ -247,7 +239,7 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		if existingOrder.UserID == userID {
 			// Заказ уже был загружен этим пользователем
 			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
-			res.WriteHeader(http.StatusOK)
+			res.WriteHeader(http.StatusAccepted)
 		} else {
 			// Заказ уже был загружен другим пользователем
 			logger.Log.Info("Order already uploaded by another user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
