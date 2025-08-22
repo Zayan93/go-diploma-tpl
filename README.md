@@ -91,7 +91,7 @@ curl.exe -v -H "Content-Type: application/json" \
 ```bash
 curl.exe -v -H "Content-Type: application/json" \
   -X POST http://localhost:8080/api/user/login \
-  -d "{\"login\": \"testuser@example.com\", \"password\": \"password123\"}" \
+  -d "{\"login\": \"testuser1@example.com\", \"password\": \"password1123\"}" \
   -c cookies.txt
 ```
 
@@ -99,8 +99,8 @@ curl.exe -v -H "Content-Type: application/json" \
 
 ```bash
 curl.exe -v -H "Content-Type: text/plain" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnb3BoZXJtYXJ0Iiwic3ViIjoiNCIsImF1ZCI6WyJ0ZXN0dXNlcjFAZXhhbXBsZS5jb20iXSwiZXhwIjoxNzU1OTMzMjc4LCJpYXQiOjE3NTU4NDY4Nzh9.RuPH4bQmRQ6QAp9PRfMZY4WPuP2EMWDNeypVsRqBiFg" \
   -X POST http://localhost:8080/api/user/orders \
-  -b cookies.txt \
   -d "12345678903"
 ```
 

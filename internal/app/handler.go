@@ -48,20 +48,22 @@ type OrderResponse struct {
 	UploadedAt string   `json:"uploaded_at"`
 }
 
-func NewHandler(userStorage store.UserStorage, authService *services.AuthService, cfg *config.Config) *Handler {
+func NewHandler(userStorage store.UserStorage, authService *services.AuthService, accrualService *services.AccrualService, cfg *config.Config) *Handler {
 	return &Handler{
-		UserStorage:  userStorage,
-		OrderStorage: userStorage.(store.OrderStorage), // Приводим к OrderStorage
-		AuthService:  authService,
-		Config:       cfg,
+		UserStorage:    userStorage,
+		OrderStorage:   userStorage.(store.OrderStorage), // Приводим к OrderStorage
+		AuthService:    authService,
+		AccrualService: accrualService,
+		Config:         cfg,
 	}
 }
 
 type Handler struct {
-	UserStorage  store.UserStorage
-	OrderStorage store.OrderStorage
-	AuthService  *services.AuthService
-	Config       *config.Config // добавляем конфигурацию
+	UserStorage    store.UserStorage
+	OrderStorage   store.OrderStorage
+	AuthService    *services.AuthService
+	AccrualService *services.AccrualService
+	Config         *config.Config // добавляем конфигурацию
 }
 
 // hashPassword хеширует пароль с использованием SHA-256 (оставляем для совместимости)
