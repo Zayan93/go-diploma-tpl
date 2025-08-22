@@ -239,7 +239,7 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 		if existingOrder.UserID == userID {
 			// Заказ уже был загружен этим пользователем
 			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
-			res.WriteHeader(http.StatusAccepted)
+			res.WriteHeader(http.StatusOK)
 		} else {
 			// Заказ уже был загружен другим пользователем
 			logger.Log.Info("Order already uploaded by another user", zap.String("orderNum", orderNum), zap.Int("userID", userID))

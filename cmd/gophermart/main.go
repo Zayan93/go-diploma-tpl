@@ -33,10 +33,12 @@ func main() {
 	defer logger.Log.Sync()
 
 	var userStorage store.UserStorage
+	var db *sql.DB
 
 	// Попытка PostgreSQL
 	if cfg.DatabaseDSN != "" {
-		db, err := sql.Open("pgx", cfg.DatabaseDSN)
+		var err error
+		db, err = sql.Open("pgx", cfg.DatabaseDSN)
 		if err != nil {
 			logger.Log.Error("Failed to open database connection", zap.Error(err))
 		} else {
@@ -58,6 +60,17 @@ func main() {
 	if userStorage == nil {
 		log.Fatalf("failed to initialize any storage backend")
 	}
+
+	// Закрываем соединение с базой данных при завершении
+	defer func() {
+		if db != nil {
+			if err := db.Close(); err != nil {
+				logger.Log.Error("Failed to close database connection", zap.Error(err))
+			} else {
+				logger.Log.Info("Database connection closed")
+			}
+		}
+	}()
 
 	// Создаем сервис аутентификации
 	authService := services.NewAuthService(cfg.JWTSecret)
