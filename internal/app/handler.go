@@ -248,13 +248,12 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 			// Заказ уже был загружен этим пользователем
 			logger.Log.Info("Order already uploaded by this user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 			res.WriteHeader(http.StatusOK)
-			return
 		} else {
 			// Заказ уже был загружен другим пользователем
 			logger.Log.Info("Order already uploaded by another user", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 			http.Error(res, "Order already uploaded by another user", http.StatusConflict)
-			return
 		}
+		return
 	}
 
 	// Создаем новый заказ со статусом NEW (без начисления баллов)
