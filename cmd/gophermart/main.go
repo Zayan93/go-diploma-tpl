@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log"
 	"net/http"
 	"time"
@@ -13,10 +12,9 @@ import (
 	"github.com/Zayan93/go-diploma-tpl/internal/logger"
 	"github.com/Zayan93/go-diploma-tpl/internal/middleware"
 	"github.com/Zayan93/go-diploma-tpl/internal/services"
-	"github.com/Zayan93/go-diploma-tpl/internal/store"
+	"github.com/Zayan93/go-diploma-tpl/internal/storage"
 
 	"github.com/go-chi/chi/v5"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 )
 
@@ -32,45 +30,12 @@ func main() {
 
 	defer logger.Log.Sync()
 
-	var userStorage store.UserStorage
-	var db *sql.DB
-
-	// Попытка PostgreSQL
-	if cfg.DatabaseDSN != "" {
-		var err error
-		db, err = sql.Open("pgx", cfg.DatabaseDSN)
-		if err != nil {
-			logger.Log.Error("Failed to open database connection", zap.Error(err))
-		} else {
-			ctx := context.Background()
-			if err = db.PingContext(ctx); err != nil {
-				logger.Log.Error("Failed to ping database", zap.Error(err))
-			} else {
-				psqlStorage, err := store.NewSQLStorage(db)
-				if err != nil {
-					logger.Log.Error("Failed to initialize SQL storage", zap.Error(err))
-				} else {
-					logger.Log.Info("Connected to PSQL server")
-					userStorage = psqlStorage // SQLStorage реализует оба интерфейса
-				}
-			}
-		}
+	// Подключаемся к базе данных
+	dbStorage, err := storage.NewDatabaseStorage(context.Background(), cfg.DatabaseDSN)
+	if err != nil {
+		log.Fatal("Failed to connect to database", zap.Error(err))
 	}
-
-	if userStorage == nil {
-		log.Fatalf("failed to initialize any storage backend")
-	}
-
-	// Закрываем соединение с базой данных при завершении
-	defer func() {
-		if db != nil {
-			if err := db.Close(); err != nil {
-				logger.Log.Error("Failed to close database connection", zap.Error(err))
-			} else {
-				logger.Log.Info("Database connection closed")
-			}
-		}
-	}()
+	defer dbStorage.Close()
 
 	// Создаем сервис аутентификации
 	authService := services.NewAuthService(cfg.JWTSecret)
@@ -79,7 +44,7 @@ func main() {
 	accrualService := services.NewAccrualService(cfg.AccrualSystemAddress)
 
 	// Baseurl передаю через dependency injection в хендлеры
-	handler := app.NewHandler(userStorage, authService, accrualService, cfg)
+	handler := app.NewHandler(dbStorage, authService, accrualService, cfg)
 
 	r := chi.NewRouter()
 	r.Use(compressor.GzipMiddleware)
@@ -104,7 +69,7 @@ func main() {
 	go func() {
 		logger.Log.Info("Starting background order processing")
 		for {
-			processOrders(userStorage.(store.OrderStorage), accrualService)
+			processOrders(dbStorage, accrualService)
 			time.Sleep(10 * time.Second) // Обрабатываем заказы каждые 10 секунд
 		}
 	}()
@@ -118,7 +83,7 @@ func main() {
 }
 
 // processOrders обрабатывает заказы со статусом NEW и PROCESSING
-func processOrders(storage store.OrderStorage, accrualService *services.AccrualService) {
+func processOrders(storage *storage.DatabaseStorage, accrualService *services.AccrualService) {
 	ctx := context.Background()
 
 	// Получаем заказы для обработки

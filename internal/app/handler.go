@@ -11,7 +11,7 @@ import (
 	"github.com/Zayan93/go-diploma-tpl/internal/logger"
 	"github.com/Zayan93/go-diploma-tpl/internal/middleware"
 	"github.com/Zayan93/go-diploma-tpl/internal/services"
-	"github.com/Zayan93/go-diploma-tpl/internal/store"
+	"github.com/Zayan93/go-diploma-tpl/internal/storage"
 	"go.uber.org/zap"
 )
 
@@ -46,10 +46,10 @@ type OrderResponse struct {
 	UploadedAt string   `json:"uploaded_at"`
 }
 
-func NewHandler(userStorage store.UserStorage, authService *services.AuthService, accrualService *services.AccrualService, cfg *config.Config) *Handler {
+func NewHandler(userStorage *storage.DatabaseStorage, authService *services.AuthService, accrualService *services.AccrualService, cfg *config.Config) *Handler {
 	return &Handler{
 		UserStorage:    userStorage,
-		OrderStorage:   userStorage.(store.OrderStorage), // Приводим к OrderStorage
+		OrderStorage:   userStorage, // DatabaseStorage реализует оба интерфейса
 		AuthService:    authService,
 		AccrualService: accrualService,
 		Config:         cfg,
@@ -57,8 +57,8 @@ func NewHandler(userStorage store.UserStorage, authService *services.AuthService
 }
 
 type Handler struct {
-	UserStorage    store.UserStorage
-	OrderStorage   store.OrderStorage
+	UserStorage    *storage.DatabaseStorage
+	OrderStorage   *storage.DatabaseStorage
 	AuthService    *services.AuthService
 	AccrualService *services.AccrualService
 	Config         *config.Config // добавляем конфигурацию

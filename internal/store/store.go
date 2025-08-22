@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"time"
 )
 
 // UserStorage интерфейс для работы с пользователями
@@ -38,6 +39,39 @@ type Storage interface {
 	OrderStorage
 	Ping(ctx context.Context) error
 	Close() error
+}
+
+// User представляет пользователя в системе
+type User struct {
+	ID       int    `json:"id"`
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
+// Order представляет заказ в системе
+type Order struct {
+	ID        int       `json:"id"`
+	UserID    int       `json:"user_id"`
+	OrderNum  string    `json:"order_num"`
+	Status    string    `json:"status"`
+	Accrual   *float64  `json:"accrual,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Withdrawal представляет вывод средств
+type Withdrawal struct {
+	ID          int       `json:"id"`
+	UserID      int       `json:"user_id"`
+	OrderNum    string    `json:"order_num"`
+	Sum         float64   `json:"sum"`
+	ProcessedAt time.Time `json:"processed_at"`
+}
+
+// Balance представляет баланс пользователя
+type Balance struct {
+	Current   float64 `json:"current"`
+	Withdrawn float64 `json:"withdrawn"`
 }
 
 type Event struct {
