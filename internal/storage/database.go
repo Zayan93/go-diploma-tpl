@@ -28,13 +28,7 @@ func NewDatabaseStorage(ctx context.Context, databaseURI string) (*DatabaseStora
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Инициализируем таблицы
-	storage := &DatabaseStorage{pool: pool}
-	if err := storage.initTable(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize tables: %w", err)
-	}
-
-	return storage, nil
+	return &DatabaseStorage{pool: pool}, nil
 }
 
 // Close закрывает соединение с базой данных
