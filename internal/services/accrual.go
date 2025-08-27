@@ -8,15 +8,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Zayan93/go-diploma-tpl/internal/models"
 	"github.com/hashicorp/go-retryablehttp"
 )
-
-// AccrualResponse представляет ответ от системы начисления баллов
-type AccrualResponse struct {
-	Order   string  `json:"order"`
-	Status  string  `json:"status"`
-	Accrual *float64 `json:"accrual,omitempty"`
-}
 
 // AccrualService сервис для работы с системой начисления баллов
 type AccrualService struct {
@@ -46,8 +40,29 @@ func NewAccrualService(baseURL string) *AccrualService {
 	}
 }
 
+// NewAccrualServiceWithRetry создает сервис с настраиваемыми параметрами retry
+func NewAccrualServiceWithRetry(baseURL string, maxRetries int, baseDelay, maxDelay time.Duration) *AccrualService {
+	client := retryablehttp.NewClient()
+	client.RetryMax = maxRetries
+	client.RetryWaitMin = baseDelay
+	client.RetryWaitMax = maxDelay
+	client.HTTPClient.Timeout = 10 * time.Second
+
+	client.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+			return false, nil
+		}
+		return retryablehttp.DefaultRetryPolicy(ctx, resp, err)
+	}
+
+	return &AccrualService{
+		client:  client,
+		baseURL: baseURL,
+	}
+}
+
 // GetOrderInfo получает информацию о заказе из системы начисления
-func (s *AccrualService) GetOrderInfo(ctx context.Context, orderNumber string) (*AccrualResponse, error) {
+func (s *AccrualService) GetOrderInfo(ctx context.Context, orderNumber string) (*models.AccrualResponse, error) {
 	url := fmt.Sprintf("%s/api/orders/%s", s.baseURL, orderNumber)
 	req, err := retryablehttp.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -63,7 +78,7 @@ func (s *AccrualService) GetOrderInfo(ctx context.Context, orderNumber string) (
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		var accrualResp AccrualResponse
+		var accrualResp models.AccrualResponse
 		if err := json.NewDecoder(resp.Body).Decode(&accrualResp); err != nil {
 			return nil, fmt.Errorf("failed to decode response: %w", err)
 		}
@@ -78,9 +93,9 @@ func (s *AccrualService) GetOrderInfo(ctx context.Context, orderNumber string) (
 				retryAfter = time.Duration(seconds) * time.Second
 			}
 		}
-		return nil, fmt.Errorf("rate limit: retry after %v", retryAfter)
+		return nil, &RateLimitError{RetryAfter: retryAfter}
 	case http.StatusInternalServerError:
-		return nil, fmt.Errorf("internal server error")
+		return nil, ErrInternalServer
 	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return nil, fmt.Errorf("server error: %d", resp.StatusCode)
 	default:

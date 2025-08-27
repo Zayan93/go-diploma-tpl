@@ -38,7 +38,7 @@ func (s *AuthService) CheckPassword(hashedPassword, password string) error {
 }
 
 // GenerateJWT генерирует JWT токен для пользователя
-func (s *AuthService) GenerateJWT(userID int, login string) (string, error) {
+func (s *AuthService) GenerateJWT(userID int64, login string) (string, error) {
 	claims := jwt.RegisteredClaims{
 		Subject:   fmt.Sprintf("%d", userID),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),

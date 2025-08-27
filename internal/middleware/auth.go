@@ -38,7 +38,7 @@ func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.H
 			}
 
 			// Извлекаем user_id из токена
-			userID, err := strconv.Atoi(claims.Subject)
+			userID, err := strconv.ParseInt(claims.Subject, 10, 64)
 			if err != nil {
 				http.Error(w, "Invalid user ID in token", http.StatusUnauthorized)
 				return
@@ -52,7 +52,7 @@ func AuthMiddleware(authService *services.AuthService) func(http.Handler) http.H
 }
 
 // GetUserIDFromContext извлекает user_id из контекста
-func GetUserIDFromContext(ctx context.Context) (int, bool) {
-	userID, ok := ctx.Value(UserIDKey).(int)
+func GetUserIDFromContext(ctx context.Context) (int64, bool) {
+	userID, ok := ctx.Value(UserIDKey).(int64)
 	return userID, ok
 }
