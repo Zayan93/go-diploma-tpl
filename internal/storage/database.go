@@ -282,38 +282,15 @@ func (s *DatabaseStorage) UpdateOrderAccrual(ctx context.Context, orderNum strin
 
 // CreateWithdrawal создает вывод средств
 func (s *DatabaseStorage) CreateWithdrawal(ctx context.Context, userID int, orderNum string, sum float64) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
+	query := `INSERT INTO withdrawals (user_id, order_num, sum, processed_at) VALUES ($1, $2, $3, $4)`
 
-	// Создаем запись о выводе средств
-	withdrawalQuery := `INSERT INTO withdrawals (user_id, order_num, sum, processed_at) VALUES ($1, $2, $3, $4)`
 	now := time.Now()
-	_, err = tx.Exec(ctx, withdrawalQuery, userID, orderNum, sum, now)
+	_, err := s.pool.Exec(ctx, query, userID, orderNum, sum, now)
 	if err != nil {
 		return fmt.Errorf("failed to create withdrawal: %w", err)
 	}
 
-	// Обновляем баланс пользователя
-	balanceQuery := `INSERT INTO balances (user_id, current, withdrawn) 
-					 SELECT $1, 
-							COALESCE(SUM(CASE WHEN status = 'PROCESSED' THEN accrual ELSE 0 END), 0),
-							COALESCE(SUM(sum), 0)
-					 FROM orders o
-					 LEFT JOIN withdrawals w ON o.user_id = w.user_id
-					 WHERE o.user_id = $1
-					 ON CONFLICT (user_id) DO UPDATE SET 
-						 current = EXCLUDED.current,
-						 withdrawn = EXCLUDED.withdrawn`
-
-	_, err = tx.Exec(ctx, balanceQuery, userID)
-	if err != nil {
-		return fmt.Errorf("failed to update balance: %w", err)
-	}
-
-	return tx.Commit(ctx)
+	return nil
 }
 
 // GetUserWithdrawals получает выводы средств пользователя
