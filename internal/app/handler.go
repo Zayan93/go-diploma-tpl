@@ -258,6 +258,7 @@ func (h *Handler) PostOrders(res http.ResponseWriter, req *http.Request) {
 
 	logger.Log.Info("Order created successfully", zap.String("orderNum", orderNum), zap.Int("userID", userID))
 	res.WriteHeader(http.StatusAccepted)
+	return
 }
 
 // GetOrders возвращает список заказов пользователя
@@ -337,7 +338,7 @@ func (h *Handler) GetUserBalance(res http.ResponseWriter, req *http.Request) {
 		Current   float64 `json:"current"`
 		Withdrawn float64 `json:"withdrawn"`
 	}{
-		Current:   current,
+		Current:   current - withdrawn, // Доступный баланс = начисленный - снятый
 		Withdrawn: withdrawn,
 	}
 
@@ -391,15 +392,18 @@ func (h *Handler) PostWithdrawBalance(res http.ResponseWriter, req *http.Request
 	}
 
 	// Получаем текущий баланс пользователя
-	current, _, err := h.OrderStorage.GetUserBalance(req.Context(), userID)
+	current, withdrawn, err := h.OrderStorage.GetUserBalance(req.Context(), userID)
 	if err != nil {
 		logger.Log.Error("Failed to get user balance", zap.Error(err))
 		http.Error(res, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	// Доступный баланс = начисленный - снятый
+	availableBalance := current - withdrawn
+
 	// Проверяем, достаточно ли средств
-	if current < requestBody.Sum {
+	if availableBalance < requestBody.Sum {
 		http.Error(res, "Insufficient funds", http.StatusPaymentRequired)
 		return
 	}
