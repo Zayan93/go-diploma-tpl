@@ -8,6 +8,9 @@ import (
 	"testing"
 )
 
+// userIDKey - собственный тип для ключа контекста пользователя
+type userIDKey struct{}
+
 // Простые тесты для валидации номеров заказов
 func TestIsValidOrderNumber(t *testing.T) {
 	handler := &Handler{}
@@ -163,11 +166,11 @@ func TestUserContext(t *testing.T) {
 	ctx := context.Background()
 	userID := 123
 
-	// Симулируем контекст с userID
-	ctxWithUser := context.WithValue(ctx, "user_id", userID)
+	// Симулируем контекст с userID используя собственный тип ключа
+	ctxWithUser := context.WithValue(ctx, userIDKey{}, userID)
 
 	// Извлекаем userID из контекста
-	extractedUserID, ok := ctxWithUser.Value("user_id").(int)
+	extractedUserID, ok := ctxWithUser.Value(userIDKey{}).(int)
 	if !ok {
 		t.Fatal("Failed to extract userID from context")
 	}
